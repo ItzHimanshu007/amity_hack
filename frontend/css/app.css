@@ -960,6 +960,7 @@ body {
   overflow-y: auto;
   min-width: 0;
 }
+.dashboard__right { height: auto; min-height: var(--dash-h); overflow: visible; }
 .dashboard__center { min-width: 0; }
 .dashboard__center #map {
   height: var(--dash-h);
@@ -1041,9 +1042,11 @@ body {
 .situation-hero {
   border: 1px solid var(--rekha);
   border-radius: var(--radius);
-  padding: var(--s5);
+  padding: var(--s3) 14px;
   background: var(--chuna);
   border-top: 4px solid var(--dhool);
+  font-size: var(--label-size);
+  line-height: 1.3;
 }
 .situation-hero--green  { border-top-color: var(--green); }
 .situation-hero--yellow { border-top-color: var(--yellow); }
@@ -1063,8 +1066,9 @@ body {
 .situation-hero__empty-sub { color: var(--dhool); margin: 0; }
 
 .situation-hero__id {
-  margin: 0 0 var(--s2);
+  margin: 0 0 var(--s1);
   color: var(--dhool);
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1072,25 +1076,24 @@ body {
   display: flex;
   align-items: flex-start;
   gap: var(--s2);
-  margin-bottom: var(--s1);
+  margin-bottom: 2px;
 }
-.situation-hero__dot { font-size: 14px; line-height: 1.4; flex: none; }
+.situation-hero__dot { font-size: 12px; line-height: 1.5; flex: none; }
 .situation-hero__headline {
   margin: 0;
-  font-size: 22px;
-  line-height: 1.25;
+  font-size: 16px;
+  line-height: 1.2;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.01em;
 }
-.situation-hero__zone { margin: 0 0 var(--s3); color: var(--dhool); }
+.situation-hero__zone { margin: 0 0 var(--s2); color: var(--dhool); }
 
 .situation-hero__confidence {
   display: inline-flex;
   align-items: baseline;
-  gap: var(--s2);
-  margin-bottom: var(--s3);
-  padding: var(--s1) var(--s3);
+  margin-bottom: var(--s2);
+  padding: 2px var(--s2);
   border-radius: var(--radius-chip);
   background: var(--rekha);
 }
@@ -1102,15 +1105,10 @@ body {
   font-weight: 700;
   letter-spacing: 0.03em;
 }
-.situation-hero__confidence-pct {
-  font-size: var(--heading-size);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-}
 
 .situation-hero__quote {
-  margin: 0 0 var(--s4);
-  padding-left: var(--s3);
+  margin: 0 0 var(--s2);
+  padding-left: var(--s2);
   border-left: 3px solid var(--rekha);
   color: var(--syahi);
   font-style: italic;
@@ -1119,49 +1117,56 @@ body {
 .situation-hero__chain {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  margin-bottom: var(--s4);
+  align-items: stretch;
+  gap: 0;
+  margin-bottom: var(--s2);
 }
 .chain-step {
   display: flex;
   align-items: center;
   gap: var(--s2);
   font-weight: 600;
+  line-height: 1.25;
 }
-.chain-step__icon { font-size: 18px; }
+.chain-step__icon { font-size: 14px; width: 18px; text-align: center; flex: none; }
+.chain-step__label { flex: 1 1 auto; }
 .chain-arrow {
-  padding-left: 9px;
   color: var(--dhool);
-  font-size: var(--label-size);
+  font-size: 11px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .situation-hero__section-heading {
-  margin: 0 0 var(--s2);
+  margin: 0 0 var(--s1);
   color: var(--dhool);
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
 .situation-hero__why {
   list-style: none;
-  margin: 0 0 var(--s4);
+  margin: 0 0 var(--s2);
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--s1);
+  gap: 2px;
 }
-.situation-hero__why li.is-checked { color: var(--syahi); }
-.situation-hero__why li.is-unchecked { color: var(--dhool); }
+.situation-hero__why li { display: flex; flex-direction: column; line-height: 1.25; }
+.situation-hero__why-label { font-weight: 600; }
+.situation-hero__why-detail { color: var(--dhool); font-size: 12px; padding-left: 14px; }
+.situation-hero__why li.is-checked .situation-hero__why-label { color: var(--syahi); }
+.situation-hero__why li.is-unchecked .situation-hero__why-label { color: var(--dhool); }
 
-.situation-hero__prediction { margin: 0 0 var(--s1); font-weight: 600; }
-.situation-hero__prediction-reason { margin: 0 0 var(--s4); color: var(--dhool); }
+.situation-hero__prediction { margin: 0; font-weight: 600; }
+.situation-hero__prediction-reason { margin: 0 0 2px; color: var(--dhool); font-size: 12px; padding-left: 22px; }
 
-.situation-hero__actions { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.situation-hero__actions { display: flex; gap: var(--s2); flex-wrap: wrap; margin-top: 6px; }
 .situation-hero__button {
   appearance: none;
   font: inherit;
   font-size: var(--label-size);
-  padding: var(--s2) var(--s4);
+  padding: 4px var(--s3);
   border-radius: var(--radius);
   border: 1px solid var(--rekha);
   background: var(--chuna);

@@ -51,14 +51,7 @@ const ALERT_DOT = { green: "🟢", yellow: "🟡", orange: "🟠", red: "🔴" }
 // number, not a second cutoff table.
 const HEALTH_WORD = { green: "Good", yellow: "Moderate", orange: "Elevated", red: "Critical" };
 
-// confidence_level (CONTRACT.md §F) is categorical — low | med | high — by
-// design; the engine does not compute a numeric confidence score. This
-// fixed mapping is a display-only approximation so the hero panel can show
-// a percentage alongside the word, per this phase's chosen visual
-// direction. It is never sent anywhere and never fed back into any
-// decision — see the Phase 1 handoff notes for why a numeric figure is
-// shown here despite CONTRACT.md defining confidence_level as words only.
-const CONFIDENCE_PCT = { high: 91, med: 68, low: 38 };
+// confidence_level (CONTRACT.md §F) is categorical by design; show only the word.
 const CONFIDENCE_WORD = { high: "High confidence", med: "Medium confidence", low: "Low confidence" };
 
 function categoryLabel(cat) {
@@ -209,12 +202,16 @@ function pickPrimarySituation() {
   return best;
 }
 
-function distinctFeedCountFromChain(situation) {
+// Feeds named by the chain's categories. Categories emitted by more than one
+// feed (traffic.signal_down) are skipped, so this can undercount but never
+// overstate corroboration.
+function distinctFeedsFromChain(situation) {
   const feeds = new Set();
   for (const step of situation.chain || []) {
-    for (const f of CATEGORY_FEEDS[step.category] || []) feeds.add(f);
+    const opts = CATEGORY_FEEDS[step.category] || [];
+    if (opts.length === 1) feeds.add(opts[0]);
   }
-  return feeds.size;
+  return [...feeds];
 }
 
 function gapMinutesText(fromIso, toIso) {
@@ -223,10 +220,9 @@ function gapMinutesText(fromIso, toIso) {
   return `${Math.round(sec / 60)} min`;
 }
 
-function firstPrediction(predictedNext) {
-  if (!predictedNext) return null;
-  const list = Array.isArray(predictedNext) ? predictedNext : [predictedNext];
-  return list.length ? list[0] : null;
+function predictionList(predictedNext) {
+  if (!predictedNext) return [];
+  return Array.isArray(predictedNext) ? predictedNext : [predictedNext];
 }
 
 function renderHeroEmpty() {
@@ -277,19 +273,12 @@ function renderHero() {
   el.appendChild(zone);
 
   const confWord = CONFIDENCE_WORD[situation.confidence_level] || "Confidence unknown";
-  const confPct = CONFIDENCE_PCT[situation.confidence_level];
   const confRow = document.createElement("div");
   confRow.className = `situation-hero__confidence situation-hero__confidence--${situation.confidence_level}`;
   const confWordEl = document.createElement("span");
   confWordEl.className = "situation-hero__confidence-word";
   confWordEl.textContent = confWord.toUpperCase();
   confRow.appendChild(confWordEl);
-  if (confPct != null) {
-    const confPctEl = document.createElement("span");
-    confPctEl.className = "situation-hero__confidence-pct";
-    confPctEl.textContent = `${confPct}%`;
-    confRow.appendChild(confPctEl);
-  }
   el.appendChild(confRow);
 
   const quote = document.createElement("p");
@@ -313,26 +302,44 @@ function renderHero() {
       label.textContent = categoryLabel(step.category);
       stepEl.appendChild(icon);
       stepEl.appendChild(label);
-      chainWrap.appendChild(stepEl);
-
-      if (i < chain.length - 1) {
-        const arrow = document.createElement("div");
-        arrow.className = "chain-arrow";
-        arrow.textContent = `↓ ${gapMinutesText(step.t_utc, chain[i + 1].t_utc)}`;
-        chainWrap.appendChild(arrow);
+      if (i > 0) {
+        const gap = document.createElement("span");
+        gap.className = "chain-arrow";
+        gap.textContent = `↓ ${gapMinutesText(chain[i - 1].t_utc, step.t_utc)} later`;
+        stepEl.appendChild(gap);
       }
+      chainWrap.appendChild(stepEl);
     });
     el.appendChild(chainWrap);
   }
 
   // ---- why we linked these ----
   const evidence = situation.evidence || {};
-  const feedCount = distinctFeedCountFromChain(situation);
+  const feeds = distinctFeedsFromChain(situation);
+  const gaps = evidence.temporal_gaps || [];
   const checks = [
-    { label: "Same geographic area", ok: !!(evidence.spatial && (evidence.spatial.max_grid_distance ?? 0) <= 2) },
-    { label: "Correct temporal sequence", ok: !!(evidence.temporal_gaps && evidence.temporal_gaps.length > 0) },
-    { label: "Historical relationship", ok: !!(evidence.lift && evidence.lift.value > 1) },
-    { label: "Independent feed corroboration", ok: feedCount >= 2 },
+    {
+      label: "Same geographic area",
+      ok: !!(evidence.spatial && (evidence.spatial.max_grid_distance ?? 99) <= 2),
+      detail: evidence.spatial?.note_en,
+    },
+    {
+      label: "Correct temporal sequence",
+      ok: gaps.length > 0 && gaps.every((g) => g.gap_sec >= 0),
+      detail: gaps.length
+        ? `${gaps.length + 1} steps in order, gaps of ${gaps.map((g) => (g.gap_sec < 60 ? "<1" : Math.round(g.gap_sec / 60))).join(", ")} min`
+        : null,
+    },
+    {
+      label: "Historical relationship",
+      ok: !!(evidence.lift && evidence.lift.value > 1),
+      detail: evidence.lift?.note_en,
+    },
+    {
+      label: "Independent feed corroboration",
+      ok: feeds.length >= 2,
+      detail: feeds.length ? `${feeds.length} feeds: ${feeds.map((f) => FEED_LABELS[f]?.en || f).join(", ")}` : null,
+    },
   ];
   const whyHeading = document.createElement("p");
   whyHeading.className = "situation-hero__section-heading label";
@@ -343,27 +350,37 @@ function renderHero() {
   for (const c of checks) {
     const li = document.createElement("li");
     li.className = c.ok ? "is-checked" : "is-unchecked";
-    li.textContent = `${c.ok ? "✓" : "–"} ${c.label}`;
+    const title = document.createElement("span");
+    title.className = "situation-hero__why-label";
+    title.textContent = `${c.ok ? "✓" : "–"} ${c.label}`;
+    li.appendChild(title);
+    const detail = document.createElement("span");
+    detail.className = "situation-hero__why-detail";
+    detail.textContent = c.detail || "Not available for this situation";
+    li.appendChild(detail);
     whyList.appendChild(li);
   }
   el.appendChild(whyList);
 
   // ---- predicted next ----
-  const prediction = firstPrediction(situation.predicted_next);
-  if (prediction) {
+  const predictions = predictionList(situation.predicted_next);
+  if (predictions.length) {
     const predHeading = document.createElement("p");
     predHeading.className = "situation-hero__section-heading label";
     predHeading.textContent = "Predicted next";
     el.appendChild(predHeading);
-    const predRow = document.createElement("p");
-    predRow.className = "situation-hero__prediction";
-    predRow.textContent = `🔮 ${categoryLabel(prediction.category)} likely`;
-    el.appendChild(predRow);
-    if (prediction.plausible_because_en) {
-      const predReason = document.createElement("p");
-      predReason.className = "situation-hero__prediction-reason";
-      predReason.textContent = prediction.plausible_because_en;
-      el.appendChild(predReason);
+    for (const prediction of predictions) {
+      const predRow = document.createElement("p");
+      predRow.className = "situation-hero__prediction";
+      predRow.textContent = `🔮 ${categoryLabel(prediction.category)}`;
+      el.appendChild(predRow);
+      const reason = prediction.plausible_because_en || (prediction.based_on ? `Based on ${prediction.based_on}` : null);
+      if (reason) {
+        const predReason = document.createElement("p");
+        predReason.className = "situation-hero__prediction-reason";
+        predReason.textContent = reason;
+        el.appendChild(predReason);
+      }
     }
   }
 
