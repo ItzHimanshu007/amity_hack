@@ -1,0 +1,15 @@
+{
+  "_comment": "Reference landmarks for Jaipur, from CONTRACT.md §C. Both the zone-label source and the geocoder dictionary for the complaints feed's text addresses. Append more objects to 'landmarks' -- no code change needed.",
+  "city": "Jaipur",
+  "landmarks": [
+    { "name": "Hawa Mahal",         "name_hi": "हवा महल",        "lat": 26.9239, "lon": 75.8267 },
+    { "name": "Amer Fort",          "name_hi": "आमेर किला",       "lat": 26.9855, "lon": 75.8513 },
+    { "name": "Jal Mahal",          "name_hi": "जल महल",         "lat": 26.9535, "lon": 75.8460 },
+    { "name": "Albert Hall Museum", "name_hi": "अल्बर्ट हॉल",     "lat": 26.9117, "lon": 75.8197 },
+    { "name": "Jaipur Junction",    "name_hi": "जयपुर जंक्शन",    "lat": 26.9196, "lon": 75.7878 },
+    { "name": "Sindhi Camp",        "name_hi": "सिंधी कैंप",      "lat": 26.9268, "lon": 75.7930 },
+    { "name": "Vaishali Nagar",     "name_hi": "वैशाली नगर",      "lat": 26.9124, "lon": 75.7370 },
+    { "name": "Malviya Nagar",      "name_hi": "मालवीय नगर",      "lat": 26.8549, "lon": 75.8106 },
+    { "name": "Mansarovar",         "name_hi": "मानसरोवर",       "lat": 26.8505, "lon": 75.7628 }
+  ]
+}

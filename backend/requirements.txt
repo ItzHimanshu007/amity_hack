@@ -1,0 +1,7 @@
+# Python 3.11. Install with:  pip install -r backend/requirements.txt
+fastapi==0.115.6
+uvicorn[standard]==0.34.0      # [standard] pulls in the websockets impl for WS /stream
+pydantic==2.10.4
+h3==4.5.0                      # H3 v4 API: latlng_to_cell / grid_disk / cell_to_boundary
+python-dateutil==2.9.0.post0   # parsing the complaints feed's IST strings
+tzdata==2024.2                 # zoneinfo("Asia/Kolkata") on platforms without a tz db

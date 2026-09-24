@@ -1,0 +1,98 @@
+/* tokens.css — the only place colors, type and spacing are defined.
+   Authority: DESIGN.md. Use the token, never the hex. */
+
+/* ------------------------------------------------------------------ fonts */
+/* Anek Devanagari, variable, served locally. Drop the files into
+   /frontend/assets/fonts/ — see README.md. No CDN: this must work offline. */
+
+@font-face {
+  font-family: "Anek Devanagari";
+  src:
+    url("../assets/fonts/AnekDevanagari-Variable.woff2") format("woff2-variations"),
+    url("../assets/fonts/AnekDevanagari-VariableFont_wdth,wght.ttf") format("truetype-variations");
+  font-weight: 100 800;
+  font-stretch: 75% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ----------------------------------------------------------------- tokens */
+
+:root {
+  color-scheme: light;
+
+  /* --- status-neutral palette --- */
+  --chuna: #F2F4F1;   /* page background */
+  --syahi: #1F2A30;   /* ink: text, ECG trace, hex outlines */
+  --dhool: #6B7780;   /* secondary text */
+  --rekha: #D5DBD8;   /* borders, dividers, ECG grid */
+  --neel:  #2B3A8C;   /* interactive / selected ONLY — never a status */
+
+  /* --- IMD four-level alert. Status only. Never decorative. --- */
+  --green:  #2F8F5B;  /* all normal   */
+  --yellow: #E3B505;  /* be aware     */
+  --orange: #E0701F;  /* be prepared  */
+  --red:    #C62D2D;  /* take action  */
+
+  /* Derived fills (12%) and borders (45%). Do not invent new alphas inline. */
+  --green-fill:  color-mix(in srgb, var(--green)  12%, var(--chuna));
+  --yellow-fill: color-mix(in srgb, var(--yellow) 12%, var(--chuna));
+  --orange-fill: color-mix(in srgb, var(--orange) 12%, var(--chuna));
+  --red-fill:    color-mix(in srgb, var(--red)    12%, var(--chuna));
+  --green-edge:  color-mix(in srgb, var(--green)  45%, transparent);
+  --yellow-edge: color-mix(in srgb, var(--yellow) 45%, transparent);
+  --orange-edge: color-mix(in srgb, var(--orange) 45%, transparent);
+  --red-edge:    color-mix(in srgb, var(--red)    45%, transparent);
+
+  /* --- type --- */
+  --font: "Anek Devanagari", system-ui, sans-serif;
+
+  --display-size: 44px;  --display-lh: 1.10;  --display-wght: 700;  --display-wdth: 112;
+  --heading-size: 24px;  --heading-lh: 1.30;  --heading-wght: 600;  --heading-wdth: 100;
+  --body-size:    16px;  --body-lh:    1.55;  --body-wght:    400;  --body-wdth:    100;
+  --label-size:   13px;  --label-lh:   1.30;  --label-wght:   500;  --label-wdth:    85;
+  --data-size:    15px;  --data-lh:    1.20;  --data-wght:    500;  --data-wdth:     90;
+
+  /* Devanagari needs vertical room for matras: +0.15 on any Hindi line. */
+  --hi-lh-bump: 0.15;
+
+  /* --- space: 4px grid --- */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px;
+  --s5: 24px; --s6: 32px; --s7: 48px; --s8: 64px;
+
+  --radius: 4px;
+  --radius-chip: 3px;
+  --border: 1px solid var(--rekha);
+
+  /* --- motion: exactly one orchestrated animation, see DESIGN.md --- */
+  --form-duration: 0.8s;
+  --form-ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Theme hook. Light is what ships (projector-safe). Dark exists so the hook is
+   real rather than aspirational; it is not the demo default. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --chuna: #141A1D;
+  --syahi: #E8EDEA;
+  --dhool: #97A2A9;
+  --rekha: #2C363B;
+  --neel:  #8E9EE8;
+  --green:  #46B277;
+  --yellow: #F0C93A;
+  --orange: #F08A3E;
+  --red:    #E15353;
+}
+
+/* The red hatch. Red is never signalled by hue alone. */
+.hatch-red {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent 0 5px,
+    color-mix(in srgb, var(--red) 28%, transparent) 5px 7px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --form-duration: 0s; }
+}

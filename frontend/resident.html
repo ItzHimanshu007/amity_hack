@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nagar Naadi — what's happening near you</title>
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
+<div id="simulated-banner"><!-- "Simulated data" marker --></div>
+
+<main id="resident-view">
+
+  <!-- The whole first screen: one status word, one line of context, one
+       freshness line, English over Hindi. DESIGN.md §1. No map above the fold. -->
+  <section id="status-block"></section>
+
+  <!-- Situation cards in plain language. Resident view never shows an H3 index. -->
+  <section id="situation-list"></section>
+
+  <!-- DESIGN.md §7. Showing our own probable false positives, labelled. -->
+  <section id="unrelated-section"></section>
+
+</main>
+
+<!-- Phase 7-9 add their modules here, e.g. <script type="module" src="js/resident.js"></script> -->
+</body>
+</html>

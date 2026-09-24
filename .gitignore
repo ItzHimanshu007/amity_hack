@@ -1,0 +1,23 @@
+# Generated feeds and databases — never committed, always regenerated.
+# (/data/* rather than /data/ so the negation below can keep the folder.)
+/data/*
+!/data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Fonts are binary and dropped in locally (see README)
+/frontend/assets/fonts/*.woff2
+/frontend/assets/fonts/*.ttf
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/

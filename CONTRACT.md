@@ -1,0 +1,1017 @@
+# CONTRACT.md — Nagar Naadi
+
+Single source of truth for how the four workstreams connect. City: **Jaipur, Rajasthan**.
+
+> **Every field name, enum value, file path and endpoint in this document is FINAL.**
+> Later phases are told: *use CONTRACT.md exactly, do not rename.* If something here is
+> genuinely wrong, change this file first and tell the other three people — never work
+> around it locally.
+
+Sections: [A. Event schema](#a-canonical-event-schema) · [B. Categories](#b-category-enum) ·
+[C. Zones](#c-zone-model) · [D. Feeds](#d-feed-list) · [E. API](#e-api-contract) ·
+[F. Situation](#f-situation-object-shape) · [G. Ground truth](#g-scenario--ground-truth-format) ·
+[H. Conventions](#h-filenaming-conventions)
+
+---
+
+## A. Canonical event schema
+
+Every record from every feed is normalized into exactly this object. There are no
+feed-specific top-level fields — anything feed-specific stays in the raw record and is
+reachable through `raw_ref`.
+
+| Field | Type | Null? | Rule |
+|---|---|---|---|
+| `event_id` | str | no | **UUID5**, derived — never random. `uuid5(NAGARNAADI_NS, f"{raw_ref}\|{category}")`. See [event_id derivation](#event_id-derivation-fixed) below. Stable for the life of the event. |
+| `source` | str | no | Feed id from [D](#d-feed-list): `weather_imd` \| `civic_complaints` \| `power_discom` \| `transit_gtfs` \| `air_sensors` |
+| `category` | str | no | One of the 11 ids in [B](#b-category-enum). |
+| `h3_cell` | str | no | H3 **resolution 8** index, 15 hex chars, e.g. `"883da218c3fffff"`. Always `latlng_to_cell(lat, lon, 8)`. |
+| `lat` | float | no | WGS84, 5 decimal places. |
+| `lon` | float | no | WGS84, 5 decimal places. |
+| `start_utc` | str | no | ISO8601 UTC with `Z`, seconds precision: `"2026-09-24T13:12:00Z"`. When the real-world condition began. |
+| `end_utc` | str | **yes** | Same format, or `null` while the condition is still ongoing. |
+| `severity` | float | no | `0.0`–`1.0`. How bad it is. Per-category scaling below. |
+| `confidence` | float | no | `0.0`–`1.0`. How much we trust the reading itself (sensor quality, resolution guesswork). |
+| `received_at` | str | no | ISO8601 UTC `Z`. When our ingest saw the record. |
+| `freshness_sec` | int | no | `received_at − start_utc` in whole seconds. Always `>= 0`; clamp to 0 if a clock drifts backwards. |
+| `is_simulated` | bool | no | `true` for everything in this build. See [H](#h-filenaming-conventions). |
+| `raw_ref` | str | no | `"<feed_id>:<record identifier>"` — points back to the exact raw record, used by `GET /raw/{feed}`. The identifier grammar is **fixed per feed**, see [raw_ref grammar](#raw_ref-grammar-fixed). |
+
+### event_id derivation (fixed)
+
+`event_id` is **derived, not random.** Phase 1 writes the raw feeds and the ground-truth
+answer key; Phase 3 reads the raw feeds and normalizes them. Both must arrive at the
+*same* id for the same real-world event, without talking to each other — otherwise every
+`member_event_ids` entry in [G](#g-scenario--ground-truth-format) dangles and
+`/scorecard` silently reports zero.
+
+```python
+import uuid
+
+NAGARNAADI_NS = uuid.UUID("1f0a7b2c-3d4e-4f50-9a61-7b8c9d0e1f20")
+
+def make_event_id(raw_ref: str, category: str) -> str:
+    return str(uuid.uuid5(NAGARNAADI_NS, f"{raw_ref}|{category}"))
+```
+
+- The separator is a single pipe `|` with **no surrounding whitespace**.
+- `category` is the exact id from [B](#b-category-enum), lowercase, unmodified.
+- The `|{category}` suffix is what lets **one raw record produce several events** with
+  distinct ids — a power `TRIP` on a signal-bearing feeder produces both a
+  `power.outage` and a `traffic.signal_down` id from the same `raw_ref`.
+- **Phase 3 reimplements this function; it does not import Phase 1's copy.** The
+  normalizer must stand alone. Three lines of duplication is the correct trade here.
+- Nothing is embedded in the raw records. No real municipal CSV carries our UUIDs, and
+  the data room would look fake if ours did.
+
+### raw_ref grammar (fixed)
+
+Because the id is derived from `raw_ref`, both phases must build **byte-identical**
+strings. Granularity differs per feed, because fan-out differs per feed.
+
+| Feed | `raw_ref` | Fan-out |
+|---|---|---|
+| `weather_imd` | `weather_imd:<station_id>@<ts_epoch>` | many records → 1 event; id comes from the record that **opens** it |
+| `air_sensors` | `air_sensors:<sensor>@<captured>` | many records → 1 event; id comes from the record that **opens** it |
+| `power_discom` | `power_discom:<feeder_id>@<reported_epoch>` | 1 record → **2** events when `carries_signals` is true |
+| `transit_gtfs` | `transit_gtfs:<trip_id>@<stop_id>` | 1 record → **N** events, one per delayed stop |
+| `civic_complaints` | `civic_complaints:<complaint_id>` | 1 record → 1 event |
+
+Rules that follow:
+
+- `<ts_epoch>` and `<reported_epoch>` are **integer** epoch seconds, UTC, no decimal
+  point. `<captured>` is the `captured` string exactly as it appears in the record,
+  `Z` included.
+- **"Opens" means the first record to cross the [severity floor](#severity-scaling-fixed).**
+  A rain episode spans many 5-minute observations but is one event, so the event keeps
+  the `raw_ref` of the first above-floor observation for its whole life — consistent with
+  [D.1](#d1-weather_imd)'s "use the latest record per station; do not sum".
+- `transit_gtfs` omits the message timestamp on purpose, so the id stays stable as
+  [D.4](#d4-transit_gtfs) revises the delay for the same `(trip_id, stop_id)`.
+- A `RESTORE` record never mints an id. It closes the `power.outage` opened by the
+  matching `TRIP`, which keeps the `TRIP`'s `raw_ref`.
+
+### severity scaling (fixed — do not invent your own)
+
+Normalize to 0–1 with a linear ramp between a floor (below which no event is emitted) and
+a ceiling (at which severity = 1.0).
+
+| Category | Measure | floor → 0.0 | ceiling → 1.0 |
+|---|---|---|---|
+| `weather.rain` | mm in 15 min | 5 | 40 |
+| `weather.heat` | heat index °C | 38 | 50 |
+| `air.pm25` | µg/m³ | 60 | 300 |
+| `power.outage` | affected_connections | 200 | 8000 |
+| `traffic.signal_down` | junctions dark | 1 | 6 |
+| `transit.delay` | delay seconds | 300 | 2700 |
+| `complaint.*` | count of open complaints in the cell, 30 min window | 1 | 12 |
+
+### confidence rules (fixed)
+
+| Situation | confidence |
+|---|---|
+| Direct sensor reading, calibrated | `0.90` |
+| Direct sensor reading, `calibrated: false` | `0.60` |
+| Resident-reported complaint | `0.70` |
+| Location resolved from a landmark string | multiply by `0.85` |
+| Location resolved from a `feeder_id` or `stop_id` registry | multiply by `0.80` |
+
+Round to 2 decimals. Floor at `0.30`.
+
+### filled-in example
+
+```json
+{
+  "event_id": "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+  "source": "civic_complaints",
+  "category": "complaint.waterlogging",
+  "h3_cell": "883da218c3fffff",
+  "lat": 26.92680,
+  "lon": 75.79300,
+  "start_utc": "2026-09-24T13:12:00Z",
+  "end_utc": null,
+  "severity": 0.58,
+  "confidence": 0.60,
+  "received_at": "2026-09-24T13:18:43Z",
+  "freshness_sec": 403,
+  "is_simulated": true,
+  "raw_ref": "civic_complaints:JPR-2026-114872"
+}
+```
+
+That example is the CSV row shown in [D.2](#d2-civic_complaints) after normalization:
+IST `24/09/2026 6:42 PM` became `2026-09-24T13:12:00Z`, the landmark string
+`Near Sindhi Camp Bus Stand` resolved to a lat/lon (hence `0.70 × 0.85 = 0.60`
+confidence), and that lat/lon became the res-8 cell.
+
+---
+
+## B. Category enum
+
+Eleven ids. This list is closed — no phase may add a twelfth without editing this file.
+
+| id | English label | Hindi label | Emitted by |
+|---|---|---|---|
+| `weather.rain` | Heavy rain | तेज़ बारिश | `weather_imd` |
+| `weather.heat` | Extreme heat | अत्यधिक गर्मी | `weather_imd` |
+| `air.pm25` | Poor air | खराब हवा | `air_sensors` |
+| `power.outage` | Power cut | बिजली कटौती | `power_discom` |
+| `traffic.signal_down` | Signal not working | सिग्नल बंद | `power_discom`, `civic_complaints` |
+| `transit.delay` | Bus running late | बस देरी से | `transit_gtfs` |
+| `complaint.waterlogging` | Waterlogging | जलभराव | `civic_complaints` |
+| `complaint.garbage` | Garbage not cleared | कचरा नहीं उठा | `civic_complaints` |
+| `complaint.streetlight` | Streetlight out | स्ट्रीटलाइट बंद | `civic_complaints` |
+| `complaint.road_damage` | Road damage | सड़क खराब | `civic_complaints` |
+| `complaint.smoke` | Smoke or burning | धुआँ या जलना | `civic_complaints` |
+
+Notes:
+
+- **Category ids are source-agnostic.** `traffic.signal_down` arrives from two feeds
+  (a DISCOM feeder trip on a signal-bearing circuit, and residents reporting a dark
+  junction). Two independent sources agreeing is exactly the corroboration the linker
+  in Phase 5 looks for — do not merge them at ingest.
+- The `.` in an id has no code meaning. It is not a namespace to parse. Treat the whole
+  string as one opaque key.
+- English labels are **sentence case**, not Title Case. See DESIGN.md.
+
+---
+
+## C. Zone model
+
+### city constants
+
+| Constant | Value |
+|---|---|
+| City | Jaipur, Rajasthan, India |
+| Timezone | `Asia/Kolkata` (IST, UTC+05:30) — display only, see [H](#h-filenaming-conventions) |
+| Bounding box SW | `26.7900, 75.6900` |
+| Bounding box NE | `26.9900, 75.8900` |
+| Bbox span | ≈ 22.2 km N–S × ≈ 19.9 km E–W, ≈ 441 km² |
+| `H3_RES` | `8` |
+| Res-8 cells inside the bbox | **591** (exact, from `h3shape_to_cells`) |
+| Res-8 average cell area | 0.737 km² |
+| Res-8 average edge length | 531 m |
+| Map default centre | `26.9124, 75.7873` |
+| Map default zoom | `11.5` |
+
+591 cells is the whole board. A busy scenario touches 20–40 of them.
+
+### lat/lon → cell
+
+```python
+# backend — h3 v4 API
+import h3
+H3_RES = 8
+cell = h3.latlng_to_cell(lat, lon, H3_RES)      # -> "883da218c3fffff"
+```
+
+```js
+// frontend — h3-js v4
+import { latLngToCell, cellToBoundary, gridDisk, gridDistance } from "h3-js";
+const H3_RES = 8;
+const cell = latLngToCell(lat, lon, H3_RES);
+```
+
+Argument order is **(lat, lon)** in both libraries. MapLibre wants **[lon, lat]**.
+This is the single most common bug in this repo — `cellToBoundary(cell, true)` returns
+GeoJSON-order `[lng, lat]` pairs, which is what you feed MapLibre.
+
+### neighbors
+
+```python
+h3.grid_disk(cell, 1)      # 7 cells: the cell itself + its 6 neighbours
+h3.grid_disk(cell, 2)      # 19 cells
+h3.grid_distance(a, b)     # integer ring distance, e.g. 4
+h3.cell_to_latlng(cell)    # (lat, lon) centroid
+h3.cell_to_boundary(cell)  # 6 (lat, lon) vertices
+```
+
+The linker in Phase 5 treats events as spatially related when
+`grid_distance(a, b) <= 1` (adjacent or same cell) and spatially *nearby* when
+`<= 2`. Anything further apart is not one situation.
+
+### landmarks and zone labels
+
+A cell index means nothing to a resident, so every zone gets a human label derived from
+the nearest landmark. These nine are the reference set. The complaints feed in
+[D.2](#d2-civic_complaints) writes these strings as free text, and `ingest/geocode.py`
+resolves them back to coordinates — so this table is both the label source and the
+geocoder dictionary.
+
+| Landmark | Hindi | lat | lon | res-8 cell |
+|---|---|---|---|---|
+| Hawa Mahal | हवा महल | 26.9239 | 75.8267 | `883da21891fffff` |
+| Amer Fort | आमेर किला | 26.9855 | 75.8513 | `883da20319fffff` |
+| Jal Mahal | जल महल | 26.9535 | 75.8460 | `883da2033dfffff` |
+| Albert Hall Museum | अल्बर्ट हॉल | 26.9117 | 75.8197 | `883da218b9fffff` |
+| Jaipur Junction | जयपुर जंक्शन | 26.9196 | 75.7878 | `883da218c7fffff` |
+| Sindhi Camp | सिंधी कैंप | 26.9268 | 75.7930 | `883da218c3fffff` |
+| Vaishali Nagar | वैशाली नगर | 26.9124 | 75.7370 | `883da21801fffff` |
+| Malviya Nagar | मालवीय नगर | 26.8549 | 75.8106 | `883da20a6dfffff` |
+| Mansarovar | मानसरोवर | 26.8505 | 75.7628 | `883da219e3fffff` |
+
+**Label rule.** For a cell, take its centroid, find the nearest landmark by haversine
+distance, and format:
+
+- `label_en` = `"Near Hawa Mahal"`; `label_hi` = `"हवा महल के पास"`
+- If the cell *is* the landmark's own cell, drop the "Near": `"Hawa Mahal"` / `"हवा महल"`
+- A situation spanning several cells labels itself from the cell with the highest
+  severity, and appends the count: `"Near Sindhi Camp + 2 nearby areas"` /
+  `"सिंधी कैंप के पास + 2 और क्षेत्र"`
+
+Never show a raw H3 index to a resident. The city view may show it in a tooltip; the
+resident view never does. DESIGN.md calls a cell an "Area".
+
+---
+
+## D. Feed list
+
+Five feeds. **The raw formats are deliberately different from each other** — that
+mismatch is the problem the project exists to solve, so Phase 1 must generate them
+faithfully ugly and Phase 3 must absorb all of it.
+
+| # | Feed id | Raw format | Raw file | Interval | Emits |
+|---|---|---|---|---|---|
+| 1 | `weather_imd` | JSON lines, **UTC epoch seconds** | `/data/raw_weather_imd.jsonl` | 300 s | `weather.rain`, `weather.heat` |
+| 2 | `civic_complaints` | **CSV**, IST text dates, landmark text address | `/data/raw_civic_complaints.csv` | 60 s | all 5 `complaint.*`, `traffic.signal_down` |
+| 3 | `power_discom` | JSON lines, **`feeder_id`, no coordinates** | `/data/raw_power_discom.jsonl` | 120 s | `power.outage`, `traffic.signal_down` |
+| 4 | `transit_gtfs` | **GTFS-realtime-like** nested JSON | `/data/raw_transit_gtfs.jsonl` | 30 s | `transit.delay` |
+| 5 | `air_sensors` | JSON lines, **one object per sensor** | `/data/raw_air_sensors.jsonl` | 180 s | `air.pm25` |
+
+"Interval" is in simulated time. The `speed` control in [E](#e-api-contract) multiplies
+how fast simulated time runs; it does not change these numbers.
+
+### deduplication rule (read this before writing any parser)
+
+Phase 3 **does** collapse repeats of the same real-world thing from the *same* feed:
+a `trip_id + stop_id` reappearing with an updated delay ([D.4](#d4-transit_gtfs)) updates
+one open event, and a re-sent weather observation for a station replaces the previous one.
+
+Phase 3 **must never** collapse records that came from **different `source` feeds**, even
+when they describe the same thing at the same place and minute.
+
+> **Explicit exception — `traffic.signal_down`.** A dark junction is reported twice on
+> purpose: once by `power_discom` (a tripped feeder with `carries_signals: true`) and once
+> by `civic_complaints` (a resident). These are two separate canonical events with two
+> different `event_id`s, two different `source` values and two different `raw_ref`s, and
+> both must reach the engine. Two independent feeds agreeing is the single strongest
+> signal the Phase 5 linker has — it is what drives `confidence_level` to `high` (see
+> [F](#f-situation-object-shape)). Deduplicating them destroys the evidence the whole
+> project exists to produce. If a dedupe pass is keyed on
+> `(category, h3_cell, time_bucket)`, it **must** also key on `source`.
+
+The same rule protects any future overlap between feeds. Dedupe within a `source`, never
+across them.
+
+### D.1 `weather_imd`
+
+Station observations. There is no notion of an "event" — Phase 3 thresholds the numbers.
+
+```json
+{"station_id":"IMD-JAI-03","ts":1758719520,"lat":26.9124,"lon":75.7873,"rain_mm_15min":18.4,"temp_c":31.2,"rh_pct":88,"wind_kph":22}
+```
+
+Phase 3 must handle:
+
+- `ts` is **epoch seconds, UTC**. Multiply by nothing; do not assume milliseconds.
+- `rain_mm_15min` is a 15-minute accumulation, but records arrive every 5 minutes, so
+  consecutive records overlap. Use the latest record per station; do not sum.
+- `weather.heat` comes from `temp_c` **and** `rh_pct` combined into a heat index, not
+  from `temp_c` alone.
+- Below the severity floor, emit nothing at all. A calm station produces no events.
+- `start_utc` = `ts`; `received_at` = ingest wall clock.
+
+### D.2 `civic_complaints`
+
+Municipal complaint register export. The messiest feed by design.
+
+```csv
+complaint_id,lodged_at,ward,locality,landmark,complaint_type,text,status
+JPR-2026-114872,24/09/2026 6:42 PM,Ward 41,Sindhi Camp,Near Sindhi Camp Bus Stand,Water Logging,Knee deep water at bus stand gate 2,OPEN
+JPR-2026-114873,24/09/2026 6:44 PM,Ward 41,Sindhi Camp,,water logging  ,,OPEN
+JPR-2026-114881,24/09/2026 7:01 PM,Ward 12,Hawa Mahal,Opp Hawa Mahal,Street Light Not Working,3 poles dark since evening,OPEN
+```
+
+Phase 3 must handle:
+
+- `lodged_at` is **`DD/MM/YYYY h:mm AM/PM` in IST**, no timezone marker.
+  `24/09/2026 6:42 PM` → `2026-09-24T13:12:00Z`. Day comes first, not the month.
+- **No coordinates.** Resolve `landmark` against the table in [C](#c-zone-model)
+  (case-insensitive, ignoring `Near`/`Opp`/`Behind`/`Nr.` prefixes). If `landmark` is
+  empty, fall back to `locality`. If neither resolves, **drop the row** and increment
+  `records_dropped` for this feed in `/state`.
+- `complaint_type` is free text with inconsistent case and trailing spaces
+  (`"Water Logging"`, `"water logging  "`, `"WATERLOGGING"`). Map through one fixed
+  synonym table in `ingest/parsers.py`. An unmapped type is a dropped row, not a guess.
+- `text` may be empty. Never required.
+- `status` is `OPEN` | `CLOSED`. A `CLOSED` row sets `end_utc`.
+- `complaint_id` is the `raw_ref` suffix.
+- **`text` contains PII.** Real complaint registers are full of contact details, so the
+  synthetic ones are too: `text` carries a resident name and a 10-digit Indian mobile
+  number mixed into Hinglish free text, e.g.
+  `"Ramesh Meena 9829012345 - paani bhar gaya hai gate ke samne"`. All of it is
+  generated; none of it refers to a real person.
+
+  Three rules, and they are not optional:
+
+  1. **Canonical events never carry `text`.** `ingest/normalize.py` drops the field
+     entirely — there is no PII to leak downstream because the field does not survive
+     normalization. The category comes from `complaint_type`, not from the prose.
+  2. **`GET /raw/{feed}` masks before returning.** The data room shows
+     `"Ramesh M▓▓▓▓ 98▓▓▓▓▓▓▓▓ - paani bhar gaya hai gate ke samne"` — enough to prove
+     the scrubber found something, without putting a name and a mobile number on a
+     projector. Masking lives in `api/routes.py`, applied on read.
+  3. **The file on disk stays unmasked.** `/data/raw_civic_complaints.csv` is the raw
+     record; masking it there would defeat the point of having a scrubber to demo.
+
+### D.3 `power_discom`
+
+Distribution company feeder events. Reports circuits, not places.
+
+```json
+{"feeder_id":"JVVNL-F-118","substation":"Sindhi Camp 33/11kV","event":"TRIP","reported_time":"2026-09-24T18:44:00","est_restore_min":75,"affected_connections":4120,"carries_signals":true,"signal_junctions":3,"cause":"UNKNOWN"}
+```
+
+Phase 3 must handle:
+
+- `reported_time` is **naive local time with no offset** — assume IST and convert.
+  It is *not* UTC despite looking ISO-shaped. This is the trap in this feed.
+- **No coordinates.** `feeder_id` → lat/lon via a static feeder registry that Phase 1
+  generates alongside the feed at `/data/feeder_registry.json`
+  (`{"JVVNL-F-118": {"lat": 26.9268, "lon": 75.7930, "name": "Sindhi Camp 33/11kV"}}`).
+- `event` is `TRIP` | `RESTORE` | `SCHEDULED_CUT`. A `RESTORE` does not create a new
+  event — it sets `end_utc` on the open `power.outage` for the same `feeder_id`.
+  `SCHEDULED_CUT` is a real outage but caps severity at `0.4` (it was announced).
+- When `carries_signals` is `true`, the same record **also** emits a
+  `traffic.signal_down` event at the same location and time, and carries
+  `signal_junctions` (int ≥ 1) — the number of junctions left dark, which is the measure
+  [A](#a-canonical-event-schema) scales `traffic.signal_down` severity by. The field is
+  absent when `carries_signals` is `false`. A resident-reported dark junction from
+  [D.2](#d2-civic_complaints) counts as `1`.
+- `est_restore_min` is a claim, not a fact. It informs the UI's wording, never `end_utc`.
+
+### D.4 `transit_gtfs`
+
+City bus realtime, shaped like GTFS-realtime `TripUpdate` messages.
+
+```json
+{"header":{"gtfs_realtime_version":"2.0","timestamp":1758719700},"entity":[{"id":"e1","trip_update":{"trip":{"trip_id":"JCTSL-22A-1830","route_id":"22A","route_name":"Sindhi Camp – Mansarovar"},"stop_time_update":[{"stop_id":"JAI-STP-0412","stop_sequence":7,"arrival":{"delay":840,"time":1758720540}},{"stop_id":"JAI-STP-0418","stop_sequence":8,"arrival":{"delay":-60,"time":1758720900}}]}}]}
+```
+
+Phase 3 must handle:
+
+- **One raw record fans out to many events.** Each `stop_time_update` above the delay
+  floor becomes its own canonical event. The record above yields one event, not two.
+- `arrival.delay` is **seconds and can be negative** (running early). Ignore `delay <= 0`.
+- **No coordinates.** `stop_id` → lat/lon via `/data/stop_registry.json`, generated by
+  Phase 1 in the same shape as the feeder registry.
+- `header.timestamp` (epoch seconds) is the feed publish time → `received_at`.
+  `arrival.time − arrival.delay` is the scheduled arrival → `start_utc`.
+- The same `trip_id` reappears each cycle with an updated delay. Keep one open event per
+  `(trip_id, stop_id)` and update its severity rather than creating duplicates.
+
+### D.5 `air_sensors`
+
+A community sensor network. Cheap hardware, so the data is patchy.
+
+```json
+{"sensor":"AQ-JPR-07","captured":"2026-09-24T13:14:08Z","pm25":182.4,"pm10":244.0,"loc":{"latitude":26.9239,"longitude":75.8267},"calibrated":false,"battery_pct":41}
+```
+
+Phase 3 must handle:
+
+- Coordinates are nested under `loc` with full-word keys `latitude`/`longitude` — not
+  `lat`/`lon` like every other feed.
+- `pm25` may be `null` or the sentinel `-1` when the sensor is faulty. Drop the record
+  and mark that sensor unhealthy; it counts toward `records_dropped`.
+- `calibrated: false` sets confidence to `0.60` instead of `0.90`.
+- `captured` is already UTC with `Z`, but sensor clocks drift up to ±90 s. Do not
+  "correct" it — let `freshness_sec` absorb the drift.
+- `battery_pct < 15` halves confidence on top of the calibration rule.
+
+---
+
+## E. API contract
+
+Base URL `http://127.0.0.1:8000`. Everything is JSON, UTF-8, no auth. All timestamps in
+responses are UTC (see [H](#h-filenaming-conventions)); the frontend converts to IST at
+render time.
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | `{"status":"ok"}`. Liveness only. |
+| `GET` | `/state` | Current snapshot: active events + situations + feed health. |
+| `WS` | `/stream` | Push channel: `event` \| `situation` \| `feedhealth` \| `tick`. |
+| `GET` | `/situations/{id}` | One situation with its member events expanded. |
+| `GET` | `/raw/{feed}` | Last N **un-normalized** records, for the data room view. |
+| `GET` | `/scorecard` | Detected vs ground truth. |
+| `POST` | `/control` | Drive the simulation. |
+
+Errors are always `{"error": "<code>", "detail": "<human sentence>"}` with codes
+`not_found`, `bad_request`, `not_ready`. `not_ready` means the simulation has not been
+started yet — the frontend shows an empty state, not an error toast.
+
+### `GET /state`
+
+The one call a fresh page load makes. After this, everything arrives over `/stream`.
+
+```json
+{
+  "server_time_utc": "2026-09-24T13:20:00Z",
+  "sim": {
+    "scenario": "monsoon_evening",
+    "state": "play",
+    "speed": 4.0,
+    "sim_time_utc": "2026-09-24T13:20:00Z",
+    "tick": 842
+  },
+  "city": {
+    "pulse_score": 62,
+    "alert_level": "orange"
+  },
+  "counts": {
+    "events_active": 37,
+    "situations_active": 3,
+    "cells_touched": 22
+  },
+  "events": [
+    {
+      "event_id": "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+      "source": "civic_complaints",
+      "category": "complaint.waterlogging",
+      "h3_cell": "883da218c3fffff",
+      "lat": 26.92680,
+      "lon": 75.79300,
+      "start_utc": "2026-09-24T13:12:00Z",
+      "end_utc": null,
+      "severity": 0.58,
+      "confidence": 0.60,
+      "received_at": "2026-09-24T13:18:43Z",
+      "freshness_sec": 403,
+      "is_simulated": true,
+      "raw_ref": "civic_complaints:JPR-2026-114872"
+    }
+  ],
+  "situations": [
+    { "situation_id": "SIT-4a91c2", "alert_level": "orange", "...": "full object, see section F" }
+  ],
+  "feed_health": [
+    {
+      "feed": "civic_complaints",
+      "state": "live",
+      "last_record_utc": "2026-09-24T13:19:40Z",
+      "age_sec": 20,
+      "interval_sec": 60,
+      "records_total": 418,
+      "records_dropped": 11,
+      "message": null
+    },
+    {
+      "feed": "transit_gtfs",
+      "state": "killed",
+      "last_record_utc": "2026-09-24T13:04:10Z",
+      "age_sec": 950,
+      "interval_sec": 30,
+      "records_total": 1602,
+      "records_dropped": 0,
+      "message": "Stopped by operator"
+    }
+  ]
+}
+```
+
+`city` is the roll-up defined in [F](#f-situation-object-shape) — the status block renders
+it directly and computes nothing. With no active situations it is
+`{"pulse_score": 0, "alert_level": "green"}`.
+
+`events` contains **active events only** — those with `end_utc == null`, or whose
+`end_utc` is within the last 30 minutes of simulated time. History lives in
+`/data/events.jsonl` and SQLite, not here.
+
+`feed_health[].state` is `live` | `stale` | `killed` | `error`:
+
+- `live` — `age_sec <= 3 × interval_sec`
+- `stale` — `age_sec > 3 × interval_sec`, nobody killed it, it just stopped arriving
+- `killed` — an operator called `/control` with `kill_feed`
+- `error` — the parser is throwing; `message` says what
+
+### `WS /stream`
+
+Connect and receive. The server pushes; the client never sends on this socket (use
+`POST /control` instead). Every message has `type` and `sent_utc`.
+
+```json
+{"type":"event","sent_utc":"2026-09-24T13:18:43Z","data":{"event_id":"9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77","source":"civic_complaints","category":"complaint.waterlogging","h3_cell":"883da218c3fffff","lat":26.92680,"lon":75.79300,"start_utc":"2026-09-24T13:12:00Z","end_utc":null,"severity":0.58,"confidence":0.60,"received_at":"2026-09-24T13:18:43Z","freshness_sec":403,"is_simulated":true,"raw_ref":"civic_complaints:JPR-2026-114872"}}
+```
+
+```json
+{"type":"situation","sent_utc":"2026-09-24T13:19:02Z","action":"created","data":{"situation_id":"SIT-4a91c2","alert_level":"orange","...":"full object, see section F"}}
+```
+
+`action` is `created` | `updated` | `closed`. `created` is the only one that triggers
+the line-drawing animation in DESIGN.md.
+
+```json
+{"type":"feedhealth","sent_utc":"2026-09-24T13:19:10Z","data":{"feed":"transit_gtfs","state":"killed","last_record_utc":"2026-09-24T13:04:10Z","age_sec":950,"interval_sec":30,"records_total":1602,"records_dropped":0,"message":"Stopped by operator"}}
+```
+
+```json
+{"type":"tick","sent_utc":"2026-09-24T13:19:11Z","data":{"sim_time_utc":"2026-09-24T13:19:11Z","tick":843,"speed":4.0,"state":"play","events_active":37,"situations_active":3,"city_pulse_score":62,"city_alert_level":"orange"}}
+```
+
+`tick` is sent once per **real** second regardless of `speed`, and is what drives the
+Naadi pulse strip, the clock and the status block. `city_pulse_score` and
+`city_alert_level` repeat the `/state` `city` block so the status word stays live without
+a refetch — same roll-up, same source, never recomputed on the client. If three ticks are missed the frontend shows
+"Not connected" and attempts to reconnect.
+
+### `GET /situations/{id}`
+
+The situation object from [F](#f-situation-object-shape), plus `member_events`: the full
+canonical event objects for every id in `member_event_ids`, sorted by `start_utc`
+ascending. This is what the "Why do we think this?" timeline reads. Unknown id → 404
+with `{"error":"not_found","detail":"No situation SIT-abc123"}`.
+
+### `GET /raw/{feed}?n=50`
+
+`{feed}` is one of the five feed ids. `n` defaults to 50, max 500. Records are returned
+**exactly as they arrived**, newest first, with nothing cleaned — that is the whole point
+of the data room.
+
+```json
+{
+  "feed": "civic_complaints",
+  "format": "csv",
+  "count": 2,
+  "records": [
+    {
+      "raw_ref": "civic_complaints:JPR-2026-114873",
+      "received_at": "2026-09-24T13:20:01Z",
+      "parsed_ok": false,
+      "reason": "landmark and locality both unresolvable",
+      "raw": "JPR-2026-114873,24/09/2026 6:44 PM,Ward 41,Sindhi Camp,,water logging  ,,OPEN"
+    },
+    {
+      "raw_ref": "civic_complaints:JPR-2026-114872",
+      "received_at": "2026-09-24T13:18:43Z",
+      "parsed_ok": true,
+      "reason": null,
+      "raw": "JPR-2026-114872,24/09/2026 6:42 PM,Ward 41,Sindhi Camp,Near Sindhi Camp Bus Stand,Water Logging,Knee deep water at bus stand gate 2,OPEN"
+    }
+  ]
+}
+```
+
+`format` is `csv` or `json`. When it is `csv`, `raw` is the literal line as a string and
+the response also carries `"header"` with the column line. When it is `json`, `raw` is
+the original object, unmodified.
+
+### `GET /scorecard`
+
+```json
+{
+  "scenario": "monsoon_evening",
+  "generated_utc": "2026-09-24T13:20:00Z",
+  "truth_situations": 5,
+  "detected_situations": 6,
+  "matched": 4,
+  "missed": 1,
+  "false_positives": 2,
+  "decoys_planted": 3,
+  "decoys_correctly_ignored": 2,
+  "precision": 0.67,
+  "recall": 0.80,
+  "f1": 0.73,
+  "alert_level_accuracy": 0.75,
+  "median_detection_lag_sec": 142,
+  "per_situation": [
+    {
+      "truth_id": "GT-001",
+      "matched_situation_id": "SIT-4a91c2",
+      "status": "matched",
+      "expected_alert_level": "orange",
+      "detected_alert_level": "orange",
+      "detection_lag_sec": 142,
+      "member_overlap": 0.83
+    },
+    {
+      "truth_id": "GT-004",
+      "matched_situation_id": null,
+      "status": "missed",
+      "expected_alert_level": "yellow",
+      "detected_alert_level": null,
+      "detection_lag_sec": null,
+      "member_overlap": 0.0
+    }
+  ]
+}
+```
+
+`status` is `matched` | `missed` | `false_positive` | `decoy_ignored` | `decoy_alerted`.
+The matching rule is defined in [G](#g-scenario--ground-truth-format) and must be
+implemented once, in `engine/scorecard.py`.
+
+### `POST /control`
+
+Request:
+
+```json
+{"action": "speed", "value": 8.0}
+```
+
+| `action` | `value` | Effect |
+|---|---|---|
+| `play` | omitted / `null` | Resume the simulation clock. |
+| `pause` | omitted / `null` | Freeze it. Ticks keep flowing with `state: "paused"`. |
+| `speed` | float, one of `1.0, 2.0, 4.0, 8.0, 16.0` | Simulated seconds per real second. |
+| `kill_feed` | feed id string | Stop that feed. Its health goes `killed`. |
+| `resume_feed` | feed id string | Start it again. |
+| `set_scenario` | scenario name string | Reset everything and load that scenario. |
+
+Response is always the `sim` block plus what changed, so the UI needs no second call:
+
+```json
+{"ok": true, "sim": {"scenario":"monsoon_evening","state":"play","speed":8.0,"sim_time_utc":"2026-09-24T13:20:00Z","tick":842}}
+```
+
+Bad action or value → 400 `{"error":"bad_request","detail":"speed must be one of 1, 2, 4, 8, 16"}`.
+
+---
+
+## F. Situation object shape
+
+A situation is the whole product: a few plain-language things a resident can understand
+in ten seconds. Everything else in this repo exists to produce these.
+
+```json
+{
+  "situation_id": "SIT-4a91c2",
+  "created_utc": "2026-09-24T13:19:02Z",
+  "updated_utc": "2026-09-24T13:24:11Z",
+  "status": "active",
+  "pulse_score": 62,
+  "alert_level": "orange",
+  "headline_en": "Flooding near Sindhi Camp is holding up buses",
+  "headline_hi": "सिंधी कैंप के पास जलभराव से बसें रुकी हैं",
+  "zone": {
+    "label_en": "Near Sindhi Camp + 2 nearby areas",
+    "label_hi": "सिंधी कैंप के पास + 2 और क्षेत्र",
+    "h3_cells": ["883da218c3fffff", "883da218c7fffff", "883da218c1fffff"],
+    "centroid": { "lat": 26.92737, "lon": 75.79265 }
+  },
+  "member_event_ids": [
+    "1b0e33a4-0c2f-4a51-9ad6-6f2b7c1d9e10",
+    "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+    "c7d2f810-3e4b-4c9a-8f61-2a5d0b3e7c44"
+  ],
+  "chain": [
+    {
+      "step": 1,
+      "event_id": "1b0e33a4-0c2f-4a51-9ad6-6f2b7c1d9e10",
+      "t_utc": "2026-09-24T12:55:00Z",
+      "category": "weather.rain",
+      "h3_cell": "883da218c7fffff",
+      "text_en": "Heavy rain started near Jaipur Junction",
+      "text_hi": "जयपुर जंक्शन के पास तेज़ बारिश शुरू हुई"
+    },
+    {
+      "step": 2,
+      "event_id": "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+      "t_utc": "2026-09-24T13:12:00Z",
+      "category": "complaint.waterlogging",
+      "h3_cell": "883da218c3fffff",
+      "text_en": "17 minutes later, residents reported waterlogging one area away",
+      "text_hi": "17 मिनट बाद, पास के क्षेत्र से जलभराव की शिकायत आई"
+    },
+    {
+      "step": 3,
+      "event_id": "c7d2f810-3e4b-4c9a-8f61-2a5d0b3e7c44",
+      "t_utc": "2026-09-24T13:18:00Z",
+      "category": "transit.delay",
+      "h3_cell": "883da218c3fffff",
+      "text_en": "6 minutes later, route 22A buses were running 14 minutes late at the same stop",
+      "text_hi": "6 मिनट बाद, उसी स्टॉप पर 22A बसें 14 मिनट देरी से चलीं"
+    }
+  ],
+  "evidence": {
+    "spatial": {
+      "h3_cells": ["883da218c3fffff", "883da218c7fffff", "883da218c1fffff"],
+      "cells_involved": 3,
+      "max_grid_distance": 1,
+      "note_en": "All three reports came from adjacent areas"
+    },
+    "temporal_gaps": [
+      { "from_event_id": "1b0e33a4-0c2f-4a51-9ad6-6f2b7c1d9e10", "to_event_id": "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77", "gap_sec": 1020 },
+      { "from_event_id": "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77", "to_event_id": "c7d2f810-3e4b-4c9a-8f61-2a5d0b3e7c44", "gap_sec": 360 }
+    ],
+    "lift": {
+      "value": 6.4,
+      "pair": ["weather.rain", "transit.delay"],
+      "window_sec": 3600,
+      "baseline_rate_per_hour": 0.12,
+      "observed_rate_per_hour": 0.77,
+      "note_en": "These normally appear together about once every 8 hours here"
+    }
+  },
+  "confidence_level": "high",
+  "confidence_reason_en": "Three separate feeds, all within one area, in the expected order",
+  "confidence_reason_hi": "तीन अलग-अलग फीड, एक ही क्षेत्र में, अपेक्षित क्रम में",
+  "is_decoy": false
+}
+```
+
+### field rules
+
+| Field | Rule |
+|---|---|
+| `situation_id` | `"SIT-"` + 6 lowercase hex chars. Stable across `updated` messages. |
+| `status` | `active` \| `closed`. Closed when every member event has an `end_utc`. |
+| `pulse_score` | Integer `0`–`100`. **The source of truth for how bad this is.** Formula below. |
+| `alert_level` | `green` \| `yellow` \| `orange` \| `red`. Derived from `pulse_score` by the engine. Clients render it; clients never compute it. |
+| `headline_en` / `headline_hi` | One sentence, sentence case, no jargon. What a resident would say. |
+| `zone.h3_cells` | Every cell any member event sits in. Order is irrelevant. |
+| `member_event_ids` | Unordered set. Use `chain` when order matters. |
+| `chain` | The numbered timeline. `step` starts at 1 and is contiguous. Sorted by `t_utc` ascending. `text_en` states the gap from the previous step in plain words. |
+| `evidence.spatial` | Which cells, how many, and the largest `grid_distance` between any two. |
+| `evidence.temporal_gaps` | Consecutive pairs along `chain`, in seconds. Length is always `len(chain) − 1`. |
+| `evidence.lift` | Observed co-occurrence rate ÷ baseline rate for the strongest category pair. `value` above `1.0` means "more together than usual". |
+| `confidence_level` | `low` \| `med` \| `high`. Rule below. |
+| `confidence_reason_*` | One sentence naming the actual reason. Never "high confidence score". |
+| `is_decoy` | `true` when the engine believes the cluster is coincidence. Decoys still get returned — the UI puts them in the "probably unrelated" section rather than hiding them. |
+
+### pulse_score → alert_level (fixed)
+
+There is **one** number in this system and **one** set of cutoffs. `pulse_score` is
+computed once, by the engine, and `alert_level` is derived from it. The UI never shows
+both and never recomputes either.
+
+```
+raw   = max(severity of member events) × 0.6
+      + mean(confidence of member events) × 0.2
+      + min(count of distinct source feeds, 3) / 3 × 0.2      # raw is 0.0–1.0
+
+pulse_score = round(raw × 100)                                 # integer 0–100
+```
+
+| `pulse_score` | `alert_level` | Status word (DESIGN.md) |
+|---|---|---|
+| `0 – 24` | `green` | All normal |
+| `25 – 49` | `yellow` | Be aware |
+| `50 – 74` | `orange` | Be prepared |
+| `75 – 100` | `red` | Take action |
+
+**Source of truth:** `pulse_score` is authoritative; `alert_level` is a label for it.
+
+**Clients must render `alert_level` as given and must never re-derive it from
+`pulse_score`.** There is one deliberate case where the two disagree: a situation with
+`is_decoy: true` is **capped at `yellow`** after thresholding, so a decoy can carry
+`pulse_score: 71` with `alert_level: "yellow"`. That is correct and intentional. A client
+that re-applies the cutoffs will color it orange and contradict its own label on stage.
+
+`pulse_score` is an integer so it can be shown directly, with tabular figures, without
+formatting decisions. It is not a percentage and carries no `%` sign.
+
+### city-wide and per-cell derivation (fixed)
+
+The same number, rolled up. Both are computed **server-side** and shipped in `/state`, so
+the map (Phase 8) and the resident view (Phase 9) cannot disagree.
+
+| Level | `pulse_score` | `alert_level` |
+|---|---|---|
+| **Situation** | the formula above | thresholds above, decoy-capped |
+| **Cell** (one H3 area) | `max` of `pulse_score` across active non-decoy situations whose `zone.h3_cells` include this cell | thresholds applied to that max |
+| **City** (the status block) | `max` of `pulse_score` across all active non-decoy situations | thresholds applied to that max |
+
+Rules that follow from this:
+
+- **Decoys never color anything.** They are excluded from both roll-ups — a cell whose
+  only situation `is_decoy` renders as having no situation. Decoy cards still appear in
+  the "probably unrelated" section.
+- **A cell with events but no situation has no fill.** It shows its event dots on the
+  `--chuna` background and nothing more. Absence of a situation is not `green`; `green`
+  is a positive claim that we looked and things are normal.
+- **City `green` with zero active situations** is the correct resting state, and the
+  status block says "Nothing unusual right now" ([DESIGN.md §1](DESIGN.md#component-specs)).
+
+### confidence_level rule (fixed)
+
+| Condition | `confidence_level` |
+|---|---|
+| 3+ distinct `source` feeds, `max_grid_distance <= 1`, all gaps under 30 min | `high` |
+| 2 distinct feeds, or one gap over 30 min | `med` |
+| Single feed, or `max_grid_distance == 2`, or any member confidence below 0.5 | `low` |
+
+---
+
+## G. Scenario + ground-truth format
+
+Phase 2 **writes** `/data/ground_truth.json` when it plants a scenario. Phase 10
+**reads** it and nothing else. Neither may change this shape alone.
+
+Ground truth is never served to the frontend except through `/scorecard`. The map and
+the resident view must never see it — that would be cheating at our own demo.
+
+```json
+{
+  "scenario": "monsoon_evening",
+  "description": "Evening cloudburst over the walled city during peak bus hours",
+  "generated_utc": "2026-09-24T12:00:00Z",
+  "sim_start_utc": "2026-09-24T12:00:00Z",
+  "sim_end_utc": "2026-09-24T15:00:00Z",
+  "planted_situations": [
+    {
+      "truth_id": "GT-001",
+      "label": "Cloudburst at Sindhi Camp floods the bus stand and delays route 22A",
+      "root_cause_category": "weather.rain",
+      "expected_chain": ["weather.rain", "complaint.waterlogging", "transit.delay"],
+      "expected_alert_level": "orange",
+      "expected_zone_cells": ["883da218c3fffff", "883da218c7fffff"],
+      "member_event_ids": [
+        "1b0e33a4-0c2f-4a51-9ad6-6f2b7c1d9e10",
+        "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+        "c7d2f810-3e4b-4c9a-8f61-2a5d0b3e7c44"
+      ],
+      "onset_utc": "2026-09-24T12:55:00Z",
+      "detect_by_utc": "2026-09-24T13:25:00Z"
+    }
+  ],
+  "decoys": [
+    {
+      "decoy_id": "DC-001",
+      "label": "Routine garbage complaints in Mansarovar happen to land during the storm",
+      "member_event_ids": [
+        "5e8a1c30-9b47-4d2e-a016-73c9f5b2e881",
+        "a2470d1f-6c85-4b93-8e20-11d4a7c6f309"
+      ],
+      "why_unrelated": "Same hour, 9 km away, and garbage complaints run at this rate every evening",
+      "must_not_alert_above": "yellow"
+    }
+  ]
+}
+```
+
+### field rules
+
+| Field | Rule |
+|---|---|
+| `truth_id` | `"GT-"` + 3 digits, starting `GT-001`. |
+| `decoy_id` | `"DC-"` + 3 digits. |
+| `member_event_ids` | The **exact** `event_id`s Phase 2 planted. Phase 2 therefore generates the uuids before writing the raw feeds, so the same id survives into normalization via `raw_ref`. |
+| `expected_chain` | Category ids in the intended causal order. The scorecard compares this to the detected `chain` for `alert_level_accuracy`, not for matching. |
+| `onset_utc` | When the first member event starts. |
+| `detect_by_utc` | The deadline. Detecting after this counts as `missed`, however good the match. |
+| `must_not_alert_above` | A decoy that produces a situation above this level counts as `decoy_alerted`, which hurts precision. |
+
+### matching rule (implement once, in `engine/scorecard.py`)
+
+A detected situation **matches** a planted one when **both** hold:
+
+1. `|detected.member_event_ids ∩ truth.member_event_ids| / |truth.member_event_ids| >= 0.5`
+2. `detected.created_utc <= truth.detect_by_utc`
+
+Each truth situation matches at most one detected situation — the one with the highest
+overlap. Detected situations left over are `false_positive`, unless they correspond to a
+decoy, in which case they are `decoy_alerted`. `detection_lag_sec` is
+`detected.created_utc − truth.onset_utc`.
+
+---
+
+## H. File/naming conventions
+
+### where data lands
+
+Everything generated lives in `/data`, which is **gitignored**. Nothing in `/data` is
+ever hand-edited; regenerate instead.
+
+| Path | Format | Written by |
+|---|---|---|
+| `/data/raw_weather_imd.jsonl` | JSON Lines | Phase 1 |
+| `/data/raw_civic_complaints.csv` | CSV with a header row | Phase 1 |
+| `/data/raw_power_discom.jsonl` | JSON Lines | Phase 1 |
+| `/data/raw_transit_gtfs.jsonl` | JSON Lines | Phase 1 |
+| `/data/raw_air_sensors.jsonl` | JSON Lines | Phase 1 |
+| `/data/feeder_registry.json` | JSON object | Phase 1 |
+| `/data/stop_registry.json` | JSON object | Phase 1 |
+| `/data/ground_truth.json` | JSON object | Phase 2 |
+| `/data/event_index.jsonl` | JSON Lines | Phase 1 |
+| `/data/events.jsonl` | JSON Lines, canonical events | Phase 3 |
+| `/data/situations.jsonl` | JSON Lines, situation objects | Phase 5 |
+| `/data/nagarnaadi.db` | SQLite | Phase 6 |
+
+`/data/event_index.jsonl` is a **Phase 1 debug artifact**: one line per raw record that
+Phase 1 expects to cross a severity floor, carrying `event_id`, `raw_ref`, `category`,
+`source`, `start_utc` and the planted `truth_id`/`decoy_id` if any. It exists so a human
+can answer "why did the scorecard miss GT-002" in one grep, and so Phase 1 can verify its
+own ground truth references records that really exist.
+
+> **Phase 3 must never read it.** A normalizer that looks up ids in Phase 1's index is
+> not a normalizer, it is a lookup against the answer key, and `/scorecard` stops meaning
+> anything. Phase 3 derives every id itself with
+> [`make_event_id`](#event_id-derivation-fixed). Phase 10 and humans may read it freely.
+
+The raw complaints feed keeps its `.csv` extension because its format *is* CSV — that
+mismatch is the point. Every other file is JSON Lines: one object per line, UTF-8, no
+trailing commas, no wrapping array, append-only.
+
+### timestamps
+
+- **Store everything in UTC. Display everything in IST.** No exceptions.
+- Any field ending in `_utc` is ISO8601 with a literal `Z` and second precision:
+  `2026-09-24T13:12:00Z`. Never store an offset like `+05:30`.
+- `freshness_sec`, `gap_sec`, `age_sec`, `delay` and friends are integer **seconds**.
+- Conversion to IST happens in exactly one place per side: a `toIST()` helper in
+  `frontend/js/` for display, and `zoneinfo("Asia/Kolkata")` in the backend only for
+  parsing feeds that arrive in local time ([D.2](#d2-civic_complaints), [D.3](#d3-power_discom)).
+- Never round-trip a timestamp through a local-time string.
+
+### constants
+
+Every number this document fixes lives in **one** module, `backend/contract_constants.py`,
+transcribed literally from the section that owns it. Four lanes importing one copy is the
+code-level version of the rule this whole file exists to enforce.
+
+| Constant | Value | From |
+|---|---|---|
+| `H3_RES` | `8` | [C](#c-zone-model) |
+| `CITY_BBOX` | `(26.79, 75.69, 26.99, 75.89)` as `(sw_lat, sw_lon, ne_lat, ne_lon)` | [C](#c-zone-model) |
+| `CITY_TZ` | `"Asia/Kolkata"` | [C](#c-zone-model) |
+| `CATEGORIES` | the 11 ids | [B](#b-category-enum) |
+| `FEEDS` | the 5 feed ids + their intervals | [D](#d-feed-list) |
+| `SEVERITY_RAMPS` | per-category floor → ceiling | [A](#a-canonical-event-schema) |
+| `CONFIDENCE` | base values + multipliers | [A](#a-canonical-event-schema) |
+| `PULSE_THRESHOLDS` | `0/25/50/75` | [F](#f-situation-object-shape) |
+| `NAGARNAADI_NS` | the UUID5 namespace | [A](#a-canonical-event-schema) |
+| `ACTIVE_WINDOW_SEC` | `1800` | [E](#e-api-contract) |
+
+`backend/ingest/zones.py` holds the H3 *helpers* (`cell_of`, `bbox_cells`,
+`nearest_landmark`, `zone_label`, …) and imports its constants from
+`contract_constants.py`. The frontend mirror is `frontend/js/zones.js`.
+
+Never write the literal `8`, `0.25` or `60` at a call site. Import the constant. If a
+number here disagrees with the section it came from, **the section wins** and this module
+is the bug.
+
+### `is_simulated`
+
+Set by `ingest/normalize.py`, never by a feed parser. In this build it is `true` for
+every event without exception — there is no live city data behind any of this. The UI
+must show a persistent "Simulated data" marker whenever any visible event has
+`is_simulated: true`, on both the city and resident views. The field exists so that the
+day someone wires in a real feed, the honesty is already structural rather than
+something to remember.
+
+### ids
+
+| Id | Shape | Example |
+|---|---|---|
+| `event_id` | UUID4 string | `9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77` |
+| `situation_id` | `SIT-` + 6 hex | `SIT-4a91c2` |
+| `truth_id` | `GT-` + 3 digits | `GT-001` |
+| `decoy_id` | `DC-` + 3 digits | `DC-001` |
+| `raw_ref` | `<feed_id>:<record id or line no>` | `civic_complaints:JPR-2026-114872` |
+
+### language
+
+All Devanagari is stored as UTF-8, never transliterated, never escaped. Every
+resident-visible string has both an `_en` and an `_hi` form, produced together — a
+missing Hindi string is a bug, not a fallback. Wording rules live in DESIGN.md.

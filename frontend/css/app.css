@@ -1,0 +1,5 @@
+/* app.css — layout and component styles. Reads tokens from tokens.css and
+   adds nothing new: no raw hex, no new spacing values. Authority: DESIGN.md.
+   Components to build here: status block, alert chip, situation card,
+   "Why do we think this?" timeline, Naadi strip, feed-health row,
+   "probably unrelated" section. */

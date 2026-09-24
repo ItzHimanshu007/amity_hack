@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nagar Naadi — city view</title>
+
+<!-- MapLibre GL JS. Vendor these into /js/vendor/ if the venue wifi is unreliable;
+     the fonts are already local for exactly that reason. -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+
+<link rel="stylesheet" href="css/tokens.css">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+
+<!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
+<div id="simulated-banner"><!-- "Simulated data" marker --></div>
+
+<!-- The one bold element. ECG-style trace of city event rate, driven by WS tick
+     messages. Hand-drawn canvas/SVG, never a chart library. DESIGN.md §5. -->
+<header id="naadi-strip"></header>
+
+<main id="city-view">
+
+  <!-- Is the city okay right now. DESIGN.md §1. -->
+  <section id="status-block"></section>
+
+  <!-- MapLibre map: res-8 h3 cells from cellToBoundary(cell, true) -> [lng, lat]. -->
+  <section id="map"></section>
+
+  <!-- Situation cards, newest first. DESIGN.md §3, with the §4 timeline inline. -->
+  <aside id="situation-rail"></aside>
+
+  <!-- is_decoy: true situations. Always visible when non-empty. DESIGN.md §7. -->
+  <section id="unrelated-section"></section>
+
+  <!-- One row per feed, with its exact-action control button. DESIGN.md §6. -->
+  <section id="feed-health"></section>
+
+  <!-- Data room: last N un-normalized records from GET /raw/{feed}, shown ugly. -->
+  <section id="data-room"></section>
+
+  <!-- POST /control: play, pause, speed, kill_feed, resume_feed, set_scenario. -->
+  <section id="sim-controls"></section>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<!-- Phase 7-9 add their modules here, e.g. <script type="module" src="js/city.js"></script> -->
+</body>
+</html>
