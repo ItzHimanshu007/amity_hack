@@ -201,7 +201,7 @@ function buildStyle(palette) {
         id: "h3-grid-line",
         type: "line",
         source: "h3-cells",
-        paint: { "line-color": palette.syahi, "line-width": 0.6, "line-opacity": 0.18 },
+        paint: { "line-color": palette.syahi, "line-width": 0.6, "line-opacity": 0.10 },
       },
       // --- H3 layer: status fill (only cells with an active situation) ---
       {
@@ -241,9 +241,9 @@ function buildStyle(palette) {
         type: "circle",
         source: "events",
         paint: {
-          "circle-radius": 2.4,
+          "circle-radius": 2,
           "circle-color": palette.dhool,
-          "circle-opacity": 0.55,
+          "circle-opacity": 0.32,
         },
       },
       // --- situation overlay: dissolved boundary, dotted, in-progress fill

@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Nagar Naadi — city view</title>
+<title>NagarNaadi — city dashboard</title>
 
 <!-- MapLibre GL JS. Vendor these into /js/vendor/ if the venue wifi is unreliable;
      the fonts are already local for exactly that reason. -->
@@ -17,45 +17,116 @@
 <!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
 <div id="simulated-banner"><!-- "Simulated data" marker --></div>
 
-<!-- The one bold element. ECG-style trace of city event rate, driven by WS tick
-     messages. Hand-drawn canvas/SVG, never a chart library. DESIGN.md §5. -->
-<header id="naadi-strip"></header>
+<!-- Phase 1 redesign: top bar. Brand, live/clock status, subtle nav between
+     the four views below. js/dashboard.js drives #topbar-live-dot,
+     #topbar-live-text and #topbar-clock from the same WS tick stream every
+     other module already listens to (no second socket). -->
+<header class="topbar">
+  <div class="topbar__brand">
+    <span class="topbar__name">NagarNaadi</span>
+    <span class="topbar__tagline">City in context, not just data</span>
+  </div>
+  <div class="topbar__status">
+    <span class="topbar__live-dot" id="topbar-live-dot"></span>
+    <span class="topbar__live-text" id="topbar-live-text">Connecting…</span>
+    <span class="topbar__clock data" id="topbar-clock">--:--:-- IST</span>
+  </div>
+  <nav class="topbar__nav" id="topbar-nav">
+    <button type="button" class="topbar__nav-item is-active" data-view="map">Live map</button>
+    <button type="button" class="topbar__nav-item" data-view="situations">Situations</button>
+    <button type="button" class="topbar__nav-item" data-view="feeds">Feeds</button>
+    <button type="button" class="topbar__nav-item" data-view="dataroom">Data room</button>
+  </nav>
+</header>
 
-<main id="city-view">
+<main id="app">
 
-  <!-- Is the city okay right now. DESIGN.md §1. -->
-  <section id="status-block"></section>
+  <!-- ============================== VIEW: live map (default) ============= -->
+  <section class="view is-active" data-view-panel="map">
+    <div class="dashboard">
 
-  <!-- MapLibre map: res-8 h3 cells from cellToBoundary(cell, true) -> [lng, lat]. -->
-  <section id="map"></section>
+      <!-- LEFT: city / feed context. Compact by design — no control panel. -->
+      <aside class="dashboard__left">
+        <div id="city-health"></div>
+        <div id="feed-health-compact"></div>
+      </aside>
 
-  <!-- Situation cards, newest first. DESIGN.md §3, with the §4 timeline inline. -->
-  <aside id="situation-rail"></aside>
+      <!-- CENTER: the existing Jaipur MapLibre/H3 map, untouched logic. -->
+      <div class="dashboard__center">
+        <section id="map"></section>
+      </div>
 
-  <!-- is_decoy: true situations. Always visible when non-empty. DESIGN.md §7. -->
-  <section id="unrelated-section"></section>
+      <!-- RIGHT: the hero panel — the story the judge should read first. -->
+      <aside class="dashboard__right">
+        <div id="situation-hero"></div>
+      </aside>
+    </div>
 
-  <!-- One row per feed, with its exact-action control button. DESIGN.md §6. -->
-  <section id="feed-health"></section>
+    <!-- BOTTOM: compact horizontal simulation timeline. -->
+    <div id="sim-timeline"></div>
+  </section>
 
-  <!-- Data room: last N un-normalized records from GET /raw/{feed}, shown ugly. -->
-  <section id="data-room"></section>
+  <!-- ============================== VIEW: situations (full list) ========= -->
+  <section class="view" data-view-panel="situations">
+    <h2 class="view__heading">Situations</h2>
+    <p class="view__subheading">Everything the linker currently believes is happening, and what it rejected.</p>
+    <!-- Situation cards, newest first. DESIGN.md §3, with the §4 timeline inline. -->
+    <aside id="situation-rail"></aside>
+    <!-- is_decoy: true situations. Always visible when non-empty. DESIGN.md §7. -->
+    <section id="unrelated-section"></section>
+  </section>
 
-  <!-- POST /control: play, pause, speed, kill_feed, resume_feed, set_scenario. -->
-  <section id="sim-controls"></section>
+  <!-- ============================== VIEW: feeds =========================== -->
+  <section class="view" data-view-panel="feeds">
+    <h2 class="view__heading">Feed health</h2>
+    <p class="view__subheading">One row per feed, with its exact-action control button.</p>
+    <!-- One row per feed. DESIGN.md §6. -->
+    <section id="feed-health"></section>
+  </section>
+
+  <!-- ============================== VIEW: data room ======================= -->
+  <section class="view" data-view-panel="dataroom">
+    <h2 class="view__heading">Data room</h2>
+    <p class="view__subheading">Original vs. cleaned records, side by side. Nothing here is prettied up.</p>
+    <!-- Data room: last N un-normalized records from GET /raw/{feed}, shown ugly. -->
+    <section id="data-room"></section>
+  </section>
+
+  <!-- Retained for js/city.js / js/statusblock.js, which still render into
+       it on every tick — kept off-screen rather than touching that code.
+       Its information now lives in the #city-health panel instead. -->
+  <section id="status-block" hidden></section>
 
 </main>
+
+<!-- Developer/demo controls — collapsed by default, per Phase 1: the
+     simulation is not the product, the situation intelligence is. Opening
+     this reveals the exact same play/pause/speed/bookmark/feed/scenario
+     controls as before; nothing about them changed. -->
+<details class="sim-console" id="sim-console">
+  <summary class="sim-console__summary">Simulation console ▾</summary>
+  <div class="sim-console__body">
+    <!-- The one bold element. ECG-style trace of city event rate, driven by WS
+         tick messages. Hand-drawn canvas/SVG, never a chart library. -->
+    <header id="naadi-strip"></header>
+    <!-- POST /control: play, pause, speed, kill_feed, resume_feed, set_scenario. -->
+    <section id="sim-controls"></section>
+  </div>
+</details>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
 <!-- city.js: the map + status block (via js/statusblock.js). naadi.js: the
      ECG strip + scrubber. situations.js/controls.js/dataroom.js: the rail,
-     playback/chaos controls, and data room. All import js/api.js as an ES
-     module; js/api.js needs no tag of its own. -->
+     playback/chaos controls, and data room. dashboard.js: Phase 1's layout
+     shell (top bar, view switching, city-health panel, hero panel, bottom
+     timeline) — reads the same WS stream and situation objects, adds no new
+     backend calls. All import js/api.js as an ES module. -->
 <script type="module" src="js/city.js"></script>
 <script type="module" src="js/naadi.js"></script>
 <script type="module" src="js/situations.js"></script>
 <script type="module" src="js/controls.js"></script>
 <script type="module" src="js/dataroom.js"></script>
+<script type="module" src="js/dashboard.js"></script>
 </body>
 </html>

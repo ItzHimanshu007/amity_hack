@@ -831,6 +831,416 @@ body {
   .data-room__panes { grid-template-columns: 1fr; }
 }
 
+/* ============================================================================
+   Phase 1 redesign — primary dashboard shell.
+
+   Everything below is new layout for index.html only (resident.html is
+   untouched and keeps the rules above). Nothing here changes what the JS
+   modules query by id/class — it only decides where those existing elements
+   sit, plus a handful of brand-new read-only summary widgets
+   (#city-health, #feed-health-compact, #situation-hero, #sim-timeline) that
+   js/dashboard.js renders from data the other modules already fetch.
+
+   Visual direction for this pass is intentionally more expressive than the
+   rest of this file (a real number, category glyphs, a percentage next to
+   the confidence word) — a deliberate, discussed departure from this
+   stylesheet's usual restraint, scoped to these new components only.
+   ========================================================================= */
+
+/* -------------------------------------------------------------- top bar */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: var(--s6);
+  padding: var(--s3) var(--s5);
+  background: var(--chuna);
+  border-bottom: var(--border);
+}
+.topbar__brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  flex: 0 0 auto;
+}
+.topbar__name {
+  font-size: 20px;
+  font-weight: 700;
+  font-stretch: 108%;
+  letter-spacing: 0.01em;
+}
+.topbar__tagline {
+  font-size: var(--label-size);
+  color: var(--dhool);
+  font-style: italic;
+  white-space: nowrap;
+}
+.topbar__status {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  flex: 1 1 auto;
+  color: var(--dhool);
+  font-size: var(--label-size);
+}
+.topbar__live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--dhool);
+  flex: none;
+}
+.topbar__live-dot--on { background: var(--green); animation: nn-pulse-dot 2s ease-in-out infinite; }
+.topbar__live-dot--paused { background: var(--yellow); }
+.topbar__live-dot--off { background: var(--red); }
+.topbar__live-text { white-space: nowrap; }
+.topbar__clock {
+  margin-left: var(--s2);
+  padding-left: var(--s3);
+  border-left: 1px solid var(--rekha);
+  color: var(--syahi);
+  white-space: nowrap;
+}
+.topbar__nav {
+  display: flex;
+  gap: var(--s5);
+  flex: 0 0 auto;
+}
+.topbar__nav-item {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: var(--s1) 0;
+  font: inherit;
+  font-size: var(--label-size);
+  color: var(--dhool);
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.topbar__nav-item:hover { color: var(--syahi); }
+.topbar__nav-item.is-active { color: var(--syahi); font-weight: 700; border-bottom-color: var(--neel); }
+
+@keyframes nn-pulse-dot {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .topbar__live-dot--on { animation: none; }
+}
+
+/* ---------------------------------------------------------------- views */
+
+.view { display: none; padding: var(--s5); }
+.view.is-active { display: block; }
+.view__heading { margin: 0 0 var(--s1); font-size: var(--heading-size); }
+.view__subheading { margin: 0 0 var(--s5); color: var(--dhool); }
+
+/* first view (live map) needs no padding of its own — its children manage it */
+.view[data-view-panel="map"] { padding: 0; }
+
+/* ------------------------------------------------------------ dashboard */
+
+.dashboard {
+  --dash-h: min(70vh, 620px);
+  display: grid;
+  grid-template-columns: 260px 1fr 380px;
+  gap: var(--s4);
+  padding: var(--s4) var(--s5);
+  align-items: stretch;
+  box-sizing: border-box;
+}
+.dashboard__left, .dashboard__right {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  height: var(--dash-h);
+  overflow-y: auto;
+  min-width: 0;
+}
+.dashboard__center { min-width: 0; }
+.dashboard__center #map {
+  height: var(--dash-h);
+  width: 100%;
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  box-sizing: border-box;
+}
+
+@media (max-width: 1100px) {
+  .dashboard { grid-template-columns: 1fr; }
+  .dashboard__left, .dashboard__right { height: auto; overflow: visible; }
+  .dashboard__center #map { height: 420px; }
+}
+
+/* ------------------------------------------------------------ city health */
+
+.city-health {
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  padding: var(--s4);
+  background: var(--chuna);
+}
+.city-health__heading { margin: 0 0 var(--s2); color: var(--dhool); }
+.city-health__row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+}
+.city-health__score {
+  font-size: 44px;
+  line-height: 1;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--syahi);
+}
+.city-health__word {
+  font-size: var(--heading-size);
+  font-weight: 600;
+  color: var(--dhool);
+}
+.city-health--yellow .city-health__word { color: var(--yellow-edge); color: color-mix(in srgb, var(--yellow) 70%, var(--syahi)); }
+.city-health--orange .city-health__word { color: var(--orange); }
+.city-health--red .city-health__word { color: var(--red); }
+.city-health--green .city-health__word { color: var(--green); }
+.city-health__sub { margin: var(--s2) 0 0; color: var(--dhool); }
+
+/* -------------------------------------------------------- compact feeds */
+
+.feed-compact__heading { margin: 0 0 var(--s2); color: var(--dhool); padding: 0 var(--s2); }
+.feed-compact-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s2);
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  margin-bottom: var(--s2);
+  background: var(--chuna);
+}
+.feed-compact-row:last-child { margin-bottom: 0; }
+.feed-compact-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--dhool);
+}
+.feed-compact-row--live .feed-compact-row__dot { background: var(--green); animation: nn-pulse-dot 2.4s ease-in-out infinite; }
+.feed-compact-row--stale .feed-compact-row__dot { background: transparent; border: 1px solid var(--dhool); }
+.feed-compact-row--killed .feed-compact-row__dot { background: var(--syahi); opacity: 0.5; }
+.feed-compact-row--error .feed-compact-row__dot { background: var(--red); }
+.feed-compact-row__name { flex: 1 1 auto; font-size: var(--body-size); }
+.feed-compact-row__state { color: var(--dhool); }
+.feed-compact-row--error .feed-compact-row__state { color: var(--red); }
+
+/* ------------------------------------------------------- situation hero */
+
+.situation-hero {
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  padding: var(--s5);
+  background: var(--chuna);
+  border-top: 4px solid var(--dhool);
+}
+.situation-hero--green  { border-top-color: var(--green); }
+.situation-hero--yellow { border-top-color: var(--yellow); }
+.situation-hero--orange { border-top-color: var(--orange); }
+.situation-hero--red    { border-top-color: var(--red); }
+
+.situation-hero--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--s2);
+  border-top-color: var(--green);
+}
+.situation-hero__empty-word { font-size: var(--heading-size); font-weight: 700; margin: 0; }
+.situation-hero__empty-sub { color: var(--dhool); margin: 0; }
+
+.situation-hero__id {
+  margin: 0 0 var(--s2);
+  color: var(--dhool);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.situation-hero__headline-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+  margin-bottom: var(--s1);
+}
+.situation-hero__dot { font-size: 14px; line-height: 1.4; flex: none; }
+.situation-hero__headline {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.25;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.01em;
+}
+.situation-hero__zone { margin: 0 0 var(--s3); color: var(--dhool); }
+
+.situation-hero__confidence {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+  padding: var(--s1) var(--s3);
+  border-radius: var(--radius-chip);
+  background: var(--rekha);
+}
+.situation-hero__confidence--high { background: var(--green-fill); }
+.situation-hero__confidence--med  { background: var(--yellow-fill); }
+.situation-hero__confidence--low  { background: var(--red-fill); }
+.situation-hero__confidence-word {
+  font-size: var(--label-size);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+.situation-hero__confidence-pct {
+  font-size: var(--heading-size);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.situation-hero__quote {
+  margin: 0 0 var(--s4);
+  padding-left: var(--s3);
+  border-left: 3px solid var(--rekha);
+  color: var(--syahi);
+  font-style: italic;
+}
+
+.situation-hero__chain {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  margin-bottom: var(--s4);
+}
+.chain-step {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-weight: 600;
+}
+.chain-step__icon { font-size: 18px; }
+.chain-arrow {
+  padding-left: 9px;
+  color: var(--dhool);
+  font-size: var(--label-size);
+}
+
+.situation-hero__section-heading {
+  margin: 0 0 var(--s2);
+  color: var(--dhool);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.situation-hero__why {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+}
+.situation-hero__why li.is-checked { color: var(--syahi); }
+.situation-hero__why li.is-unchecked { color: var(--dhool); }
+
+.situation-hero__prediction { margin: 0 0 var(--s1); font-weight: 600; }
+.situation-hero__prediction-reason { margin: 0 0 var(--s4); color: var(--dhool); }
+
+.situation-hero__actions { display: flex; gap: var(--s3); flex-wrap: wrap; }
+.situation-hero__button {
+  appearance: none;
+  font: inherit;
+  font-size: var(--label-size);
+  padding: var(--s2) var(--s4);
+  border-radius: var(--radius);
+  border: 1px solid var(--rekha);
+  background: var(--chuna);
+  color: var(--syahi);
+  cursor: pointer;
+}
+.situation-hero__button:hover { border-color: var(--neel); }
+.situation-hero__button--primary {
+  background: var(--neel);
+  border-color: var(--neel);
+  color: white;
+}
+
+/* ------------------------------------------------------------- timeline */
+
+#sim-timeline {
+  padding: var(--s3) var(--s5) var(--s5);
+  border-top: var(--border);
+}
+.sim-timeline__heading { margin: 0 0 var(--s3); color: var(--dhool); }
+.sim-timeline__track {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s2);
+  position: relative;
+  padding-top: var(--s3);
+}
+.sim-timeline__track::before {
+  content: "";
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--rekha);
+}
+.sim-timeline__point {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  flex: 1 1 0;
+  min-width: 0;
+}
+.sim-timeline__point-time { color: var(--dhool); white-space: nowrap; }
+.sim-timeline__point-icon {
+  font-size: 18px;
+  background: var(--chuna);
+  z-index: 1;
+}
+
+/* -------------------------------------------------------- sim console */
+
+.sim-console {
+  border-top: var(--border);
+  background: var(--chuna);
+}
+.sim-console__summary {
+  list-style: none;
+  cursor: pointer;
+  padding: var(--s3) var(--s5);
+  color: var(--neel);
+  font-size: var(--label-size);
+  font-weight: 600;
+  user-select: none;
+}
+.sim-console__summary::-webkit-details-marker { display: none; }
+.sim-console__summary::marker { content: ""; }
+.sim-console[open] .sim-console__summary { border-bottom: var(--border); }
+.sim-console__body { padding: var(--s4) var(--s5); }
+
+/* status-block is kept in the DOM for js/city.js / js/statusblock.js to
+   render into (unchanged), but its information now lives in #city-health —
+   [hidden] needs the higher specificity below to win over the
+   #status-block { display:flex } rule above. */
+#status-block[hidden] { display: none; }
+
 /* ------------------------------------------------------- resident view */
 
 #resident-view {
