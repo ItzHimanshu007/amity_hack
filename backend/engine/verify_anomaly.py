@@ -238,9 +238,16 @@ def check_f_no_answer_key_leak():
 
     # Scope: the modules detection actually imports. Excluded deliberately --
     #   verify_anomaly.py : this script, which is allowed to read the answer key
+    #   verify_linker.py  : Phase 5's own verify script, same allowance -- it has its
+    #                       own copy of this exact check (engine/verify_linker.py's
+    #                       check (g)), listed here too so THIS script's sweep of the
+    #                       whole directory doesn't flag it as a stranger.
     #   scorecard.py      : Phase 10, whose entire job is scoring against it
-    #   linker.py / situations.py : Phase 5 stubs, not part of detection
-    EXCLUDED = {"verify_anomaly.py", "scorecard.py", "linker.py", "situations.py"}
+    #   linker.py / situations.py / plausibility.py / lift.py : Phase 5's detection-
+    #                       adjacent modules, not part of anomaly detection itself and
+    #                       already covered by verify_linker.py's own leak check.
+    EXCLUDED = {"verify_anomaly.py", "verify_linker.py", "scorecard.py", "linker.py",
+               "situations.py", "plausibility.py", "lift.py"}
     targets = [py for py in sorted(ENGINE_DIR.glob("*.py")) if py.name not in EXCLUDED]
 
     offenders = []

@@ -10,6 +10,7 @@ Single source of truth for how the four workstreams connect. City: **Jaipur, Raj
 Sections: [A. Event schema](#a-canonical-event-schema) · [B. Categories](#b-category-enum) ·
 [C. Zones](#c-zone-model) · [D. Feeds](#d-feed-list) · [E. API](#e-api-contract) ·
 [E.1 Anomaly record](#e1-anomaly-record-shape) · [F. Situation](#f-situation-object-shape) ·
+[F.1 Linking](#f1-linking-phase-5) ·
 [G. Ground truth](#g-scenario--ground-truth-format) · [H. Conventions](#h-filenaming-conventions)
 
 ---
@@ -680,10 +681,13 @@ Request:
 |---|---|---|
 | `play` | omitted / `null` | Resume the simulation clock. |
 | `pause` | omitted / `null` | Freeze it. Ticks keep flowing with `state: "paused"`. |
-| `speed` | float, one of `1.0, 2.0, 4.0, 8.0, 16.0` | Simulated seconds per real second. |
-| `kill_feed` | feed id string | Stop that feed. Its health goes `killed`. |
-| `resume_feed` | feed id string | Start it again. |
+| `speed` | float, one of `1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 100.0, 200.0` | Simulated seconds per real second. Extended to 200x for the pitch demo (3h window in ~54s). |
+| `kill_feed` | feed id string | Stop that feed. Its health goes `killed`. Apply a serve-time confidence penalty (one level down) to any active situation with a member event from that feed, with a human-readable reason. |
+| `resume_feed` | feed id string | Start it again. Reverse any kill_feed penalty, restore original confidence. |
 | `set_scenario` | scenario name string | Reset everything and load that scenario. |
+| `jump_to` | bookmark name string or UTC timestamp | Jump the clock to a named bookmark (`window_start`, `storm_onset`, `first_situation`, `feed_kill_demo_point`, `gt002_onset`, `gt003_onset`, `peak_activity`, `window_end`) or an arbitrary UTC timestamp. Recomputes served state as-of that time — same result as linear play reaching it. |
+| `delay_feed` | `{"source": "<feed_id>", "seconds": <int>}` | **Phase 6 addition.** Simulates a feed running behind: events from that source are held and revealed `seconds` later than their real timestamp until resumed. |
+| `inject_duplicate` | event_id string | **Phase 6 addition.** Re-serves an already-revealed event over WS with a new `received_at` but the same `event_id`, tagged `is_duplicate: true`. The frontend/data-room recognizes and doesn't double-count it. |
 
 Response is always the `sim` block plus what changed, so the UI needs no second call:
 
@@ -691,7 +695,7 @@ Response is always the `sim` block plus what changed, so the UI needs no second 
 {"ok": true, "sim": {"scenario":"monsoon_evening","state":"play","speed":8.0,"sim_time_utc":"2026-09-24T13:20:00Z","tick":842}}
 ```
 
-Bad action or value → 400 `{"error":"bad_request","detail":"speed must be one of 1, 2, 4, 8, 16"}`.
+Bad action or value → 400 `{"error":"bad_request","detail":"speed must be one of 1, 2, 4, 8, 16, 32, 64, 100, 200"}`.
 
 ---
 
@@ -875,7 +879,12 @@ in ten seconds. Everything else in this repo exists to produce these.
   "confidence_level": "high",
   "confidence_reason_en": "Three separate feeds, all within one area, in the expected order",
   "confidence_reason_hi": "तीन अलग-अलग फीड, एक ही क्षेत्र में, अपेक्षित क्रम में",
-  "is_decoy": false
+  "is_decoy": false,
+  "predicted_next": {
+    "category": "traffic.signal_down",
+    "typical_lag_range_sec": [0, 1800],
+    "based_on": "6 historical co-occurrences"
+  }
 }
 ```
 
@@ -897,6 +906,7 @@ in ten seconds. Everything else in this repo exists to produce these.
 | `confidence_level` | `low` \| `med` \| `high`. Rule below. |
 | `confidence_reason_*` | One sentence naming the actual reason. Never "high confidence score". |
 | `is_decoy` | `true` when the engine believes the cluster is coincidence. Decoys still get returned — the UI puts them in the "probably unrelated" section rather than hiding them. |
+| `predicted_next` | **New, Phase 5.** `null`, or `{category, typical_lag_range_sec: [min,max], based_on}` naming the ONE category [§F.1](#f1-linking-phase-5)'s plausibility table says commonly follows this situation's most recent member, when it has not shown up yet. One hop only — never a prediction of a prediction. Worded in the UI as a pattern ("often follows within N minutes"), never a certainty. |
 
 ### pulse_score → alert_level (fixed)
 
@@ -959,6 +969,175 @@ Rules that follow from this:
 | 3+ distinct `source` feeds, `max_grid_distance <= 1`, all gaps under 30 min | `high` |
 | 2 distinct feeds, or one gap over 30 min | `med` |
 | Single feed, or `max_grid_distance == 2`, or any member confidence below 0.5 | `low` |
+
+---
+
+## F.1 Linking (Phase 5)
+
+How [§E.1](#e1-anomaly-record-shape) anomalies become [§F](#f-situation-object-shape)
+Situations. `backend/engine/plausibility.py`, `engine/lift.py`, `engine/linker.py`,
+`engine/situations.py`.
+
+### the plausibility table
+
+Hand-written domain knowledge, not learned — fourteen days of baseline noise is nowhere
+near enough data to *learn* that a tripped feeder darkens traffic signals, but every
+electrical engineer in the room already knows it. `min_gap` is `0`, not `1`: a DISCOM
+feeder trip emits its `power.outage` and its `traffic.signal_down` from the **same raw
+record at the same instant** ([§D.3](#d3-power_discom)), so a strictly-positive minimum
+would reject the single most certain link in the system.
+
+| Cause | Effect | Gap (min) | Why |
+|---|---|---|---|
+| `complaint.road_damage` | `transit.delay` | 0–60 | a broken carriageway slows every vehicle including buses |
+| `complaint.smoke` | `air.pm25` | 0–30 | burning close by pushes particulate readings up downwind |
+| `complaint.waterlogging` | `complaint.road_damage` | 0–240 | water under the surface breaks the road up |
+| `complaint.waterlogging` | `power.outage` | 0–60 | water in a street-level substation or feeder pillar trips it |
+| `complaint.waterlogging` | `transit.delay` | 0–60 | a flooded stretch forces buses to crawl or divert |
+| `power.outage` | `complaint.streetlight` | 0–60 | the same dead feeder takes the street lights with it |
+| `power.outage` | `traffic.signal_down` | 0–30 | a tripped feeder carrying signal circuits leaves junctions dark |
+| `traffic.signal_down` | `transit.delay` | 0–45 | unsignalled junctions back up and buses lose their slot |
+| `weather.heat` | `power.outage` | 0–180 | peak cooling load on a hot afternoon overloads distribution feeders |
+| `weather.rain` | `complaint.road_damage` | 0–240 | standing water opens up potholes that residents then report |
+| `weather.rain` | `complaint.waterlogging` | 0–90 | heavy rain pools in low-lying streets within the hour |
+| `weather.rain` | `power.outage` | 0–120 | water reaching a feeder or transformer trips the circuit |
+| `weather.rain` | `transit.delay` | 0–120 | wet roads and reduced visibility slow every bus on the route |
+
+`complaint.garbage` appears on **neither side of any edge**, deliberately. Uncollected
+garbage is an accumulation condition measured in days, not an event with minute-scale
+causes or effects among the other ten categories — putting an edge from it to
+`complaint.smoke` (say) would let a routine, unrelated garbage backlog absorb an actual
+fire report just because both happened to be nearby. `air.pm25`, `transit.delay` and
+`complaint.streetlight` are **effect-only**: they never start a chain (see "standalone
+situations" below) — buses run late for reasons a civic feed cannot see (a festival
+crowd, a broken-down truck), so a lone bus-delay cluster is never, on its own, claimed
+as a situation.
+
+### lift
+
+For each plausible pair, `engine/lift.py` measures how much more often it co-occurs in
+the 14-day history than a local chance model predicts:
+
+```
+lift = (observed co-occurrences + 0.5) / (chance-expected co-occurrences + 0.5)
+```
+
+Chance is **localized**, not city-uniform: for each cause event, the expected count
+comes from how many effect-category events the cause's own 7-cell neighbourhood held
+over the whole history, spread flat over that span — a sensor that is locally common is
+correctly unsurprising locally. Values above `1.0` mean "more together than chance
+here"; below `1.0` means "no more than chance."
+
+**Lift never gates a link — only the plausibility table and the time window do.**
+Phase 1 generates the 14-day history as deliberately stationary noise with **no**
+planted causal structure (`sim.verify` check (e) hard-fails the build otherwise), so
+most genuinely plausible pairs measure *below* 1.0 there: `0.44` for
+`complaint.waterlogging → power.outage`, `0.89` for `traffic.signal_down →
+transit.delay` — both real legs of GT-001's own planted cascade. A lift threshold near
+or above 1.0 would veto legs of the headline scenario. (The one pair that IS
+structurally deterministic — `power.outage → traffic.signal_down`, one raw record
+emitting both at the same instant — measures a lift near 44 even in stationary noise;
+it was never at risk from a lift gate. It is the *low*-lift real pairs that make gating
+on lift the wrong call with 14 days of synthetic history.) `LINK_MIN_LIFT` ships at
+`0.0` for this reason and stays wired for a deployment with enough real history to
+turn it on. Lift is still scored into link strength and reported as
+[`evidence.lift`](#f-situation-object-shape) on every situation.
+
+### candidate links and scoring
+
+Two episodes (Phase 4's overlapping anomaly windows for one `(h3_cell, category)`,
+merged into one evidence node per burst) are a link candidate when, for some ordering:
+
+1. the pair is in the plausibility table above;
+2. `grid_distance(cell_a, cell_b) <= 1` ([§C](#c-zone-model): "spatially related");
+3. the **closest-fitting pair of actual contributing events** (not a single fixed
+   per-episode timestamp — an episode can span more than one burst, and using its
+   raw-earliest event risks anchoring on an unrelated one) falls inside the pair's gap
+   window.
+
+Accepted links are scored `0.4·space + 0.4·time-fit + 0.2·lift` (all `0`–`1`) and
+clustered into situations by connected components. The closest-gap edge into a
+non-root episode also fixes its **anchor event** — the specific event that earned it a
+place in the cascade — which is what the [`chain`](#f-situation-object-shape) step's
+timestamp and text point at, and what the episode's evidence is pruned around (events
+more than [`ANOMALY_WINDOW_SEC`](#e1-anomaly-record-shape) — 60 minutes — from the
+anchor are excluded from that situation's membership; they were not evidence for this
+particular link, even though Phase 4 flagged them in the same rolling window).
+
+### standalone situations
+
+A Situation **may consist of a single anomaly with no link partner** — this is the
+resolution for a real cascade whose downstream step is undetectable by Phase 4's
+count-based test (the [§E.1 known limitation](#e1-anomaly-record-shape): GT-003's
+magnitude-only `air.pm25` elevation never crosses the count threshold, so nothing can
+link to it). Three gates, all required (`contract_constants.py`):
+
+1. **root-capable** — the category has at least one outgoing edge above. A lone
+   occurrence of an effect-only category carries no more claim to being "a situation"
+   than any other single report.
+2. **discrete-incident category** — the same `ANOMALY_RARE_ELIGIBLE_CATEGORIES`
+   exclusion Phase 4's rare trigger uses (`weather.heat`, `air.pm25` excluded): a
+   single crossing of a sustained, city-wide condition is not a localized event.
+3. `severity_weighted >= STANDALONE_MIN_SEVERITY_WEIGHTED` (`0.25`).
+
+A standalone situation's `confidence_level` is **capped at `med`** — it lacks the
+multi-source corroboration [§F](#f-situation-object-shape)'s confidence table rewards,
+structurally, not as an afterthought.
+
+### confidence addendum
+
+[§F](#f-situation-object-shape)'s confidence table is unchanged. Two rules resolve
+cases it left implicit:
+
+- **Boundary.** "All gaps under 30 min" for `high` and "one gap over 30 min" for `med`
+  leaves exactly 1800s undefined. Resolved **inclusive**: a gap of exactly 30 minutes
+  is still `high`. (GT-002 lands on this boundary exactly.)
+- **Degradation.** A situation depending on a feed Phase 4 reported `degraded_by_stale_feeds`
+  for **drops one confidence level** (`high→med→low`, floor at `low`), with the reason
+  recorded, e.g. *"civic complaints feed stale 6 min, confidence lowered."* This is
+  checked once, after the base level and the standalone cap — never twice.
+- **Source counting** is over the situation's member events' `source` values, not its
+  episodes — a `traffic.signal_down` episode alone carrying both `power_discom` and
+  `civic_complaints` (the [§D dedupe carve-out](#deduplication-rule-read-this-before-writing-any-parser))
+  already counts as two independent sources agreeing, exactly the corroboration this
+  table is built to reward.
+
+### rejected candidates (new — `/data/rejected_candidates.jsonl`)
+
+Every pair of episodes that came close enough in space (`grid_distance <= 2`) and time
+(within 90 minutes) to be worth explaining, but did **not** end up in the same
+situation. This is the system's own judgment on a near-miss — **not** the same thing as
+a ground-truth decoy, which this code never reads; Phase 10's scorer compares the two
+separately ("decoys correctly ignored"). Feeds Phase 8's "probably unrelated" section
+directly.
+
+```json
+{
+  "rejected_id": "REJ-04e06ea4",
+  "anomaly_ids": ["ANOM-1cf88f38", "ANOM-9c14cc8b"],
+  "categories": ["complaint.garbage", "complaint.smoke"],
+  "h3_cells": ["883da21801fffff"],
+  "gap_sec": 300,
+  "grid_distance": 0,
+  "reason_en": "complaint.garbage and complaint.smoke overlapped in time and space but this category pair is not in the plausibility table",
+  "reason_hi": "complaint.garbage और complaint.smoke समय और स्थान में साथ थे लेकिन यह जोड़ी प्रशंसनीयता तालिका में नहीं है"
+}
+```
+
+| Field | Rule |
+|---|---|
+| `rejected_id` | `"REJ-"` + 8 lowercase hex, derived: `sha1("\|".join(sorted(anomaly_ids)))[:8]`. |
+| `anomaly_ids` | The Phase 4 anomalies behind both episodes, sorted. |
+| `categories` / `h3_cells` | Sorted, deduplicated — one or two of each. |
+| `gap_sec` / `grid_distance` | The closest-fitting event pair's gap, and the cell distance. |
+| `reason_en` / `reason_hi` | One sentence: category pair not in the table, gap outside the plausible window, or areas not adjacent. |
+
+### predicted_next
+
+See [§F](#f-situation-object-shape)'s field rule. One hop from the situation's most
+recent chain step, using the same plausibility table above; only emitted when the
+history holds at least one instance of the situation's own category actually
+occurring (`n_cause > 0` in the lift table) — never a guess with nothing behind it.
 
 ---
 
@@ -1056,6 +1235,7 @@ ever hand-edited; regenerate instead.
 | `/data/events.jsonl` | JSON Lines, canonical events | Phase 3 |
 | `/data/anomalies.jsonl` | JSON Lines, [anomaly records](#e1-anomaly-record-shape) | Phase 4 |
 | `/data/situations.jsonl` | JSON Lines, situation objects | Phase 5 |
+| `/data/rejected_candidates.jsonl` | JSON Lines, [rejected candidates](#f1-linking-phase-5) | Phase 5 |
 | `/data/nagarnaadi.db` | SQLite | Phase 6 |
 
 `/data/event_index.jsonl` is a **Phase 1 debug artifact**: one line per raw record that
@@ -1102,6 +1282,10 @@ code-level version of the rule this whole file exists to enforce.
 | `PULSE_THRESHOLDS` | `0/25/50/75` | [F](#f-situation-object-shape) |
 | `NAGARNAADI_NS` | the UUID5 namespace | [A](#a-canonical-event-schema) |
 | `ACTIVE_WINDOW_SEC` | `1800` | [E](#e-api-contract) |
+| `LINK_MAX_GRID_DISTANCE` / `NEARBY_MAX_GRID_DISTANCE` | `1` / `2` | [F.1](#f1-linking-phase-5) |
+| `LINK_MIN_LIFT` | `0.0` (never vetoes — see [F.1](#f1-linking-phase-5)) | [F.1](#f1-linking-phase-5) |
+| `STANDALONE_MIN_SEVERITY_WEIGHTED` / `STANDALONE_MAX_CONFIDENCE` | `0.25` / `"med"` | [F.1](#f1-linking-phase-5) |
+| `CONFIDENCE_HIGH_MAX_GAP_SEC` | `1800`, inclusive | [F.1](#f1-linking-phase-5) |
 
 `backend/ingest/zones.py` holds the H3 *helpers* (`cell_of`, `bbox_cells`,
 `nearest_landmark`, `zone_label`, …) and imports its constants from

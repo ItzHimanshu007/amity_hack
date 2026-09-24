@@ -127,6 +127,129 @@ ANOMALY_RARE_ELIGIBLE_CATEGORIES = frozenset(
     c for c in CATEGORIES if c not in ("weather.heat", "air.pm25"))
 
 
+# --- CONTRACT.md §F.1: linking (Phase 5) --------------------------------------
+# Two anomalies may be linked only when their cells are the same or adjacent.
+# CONTRACT.md §C: "spatially related when grid_distance <= 1 ... spatially nearby when
+# <= 2. Anything further apart is not one situation."
+LINK_MAX_GRID_DISTANCE = 1
+# How far out the near-miss scan looks for pairs it will then REJECT. §C's "nearby".
+NEARBY_MAX_GRID_DISTANCE = 2
+# A near-miss is only worth showing the resident if the two things were close in time
+# as well as space. 90 min is the widest window in the plausibility table.
+REJECTED_CANDIDATE_MAX_GAP_SEC = 5400
+
+# Lift smoothing: added to both the observed and the chance-expected co-occurrence
+# count so a pair that never co-occurred in 14 days reports a finite number instead of
+# 0 or infinity.
+LIFT_SMOOTHING = 0.5
+# Minimum lift for a link to be ACCEPTED. Ships at 0.0 -- i.e. lift never vetoes a
+# link -- and that is a measured decision, not an oversight. Phase 1 generates the
+# history as stationary noise with no planted structure (sim.verify check (e) hard-
+# fails otherwise), so most plausible pairs measure BELOW 1.0 there: measured lift is
+# 0.44 for complaint.waterlogging -> power.outage and 0.89 for
+# traffic.signal_down -> transit.delay -- both real legs of GT-001's own cascade. Any
+# threshold near or above 1.0 would veto legs of the headline scenario. (The one
+# pair that IS structurally certain -- power.outage -> traffic.signal_down,
+# CONTRACT.md §D.3's single raw record emitting both at once -- measures a lift of
+# ~44 even in stationary history, since a co-located, co-timed pair is exactly what a
+# chance model does not predict; it was never at risk from this gate. It is the
+# LOW-lift real pairs above that make LINK_MIN_LIFT=0.0 the correct setting.) Lift is
+# scored into link strength and reported as evidence; the hand-written plausibility
+# table is what decides whether a link is allowed at all. The gate stays wired so a
+# deployment with real history can turn it on.
+LINK_MIN_LIFT = 0.0
+# Above this, a pair is worth CLAIMING as "more often than chance" in resident-facing
+# text; below it the situation card says the link rests on mechanism, not frequency.
+LIFT_STRONG = 1.5
+# ...and only when the history actually held this many co-occurrences. Two events
+# lining up twice in a fortnight is not a pattern worth putting on a screen.
+LIFT_MIN_COOCCURRENCES_TO_CITE = 3
+
+# A Situation may consist of a SINGLE anomaly with no link partner, for the case where
+# the downstream step is real but undetectable by a count-based test (CONTRACT.md §E.1
+# "known limitation" -- GT-003's magnitude-only air.pm25). Three gates, all required:
+#   1. the category is root-capable in the plausibility table (it can start something);
+#   2. the category is a discrete incident, not a sustained sensor condition -- the
+#      same ANOMALY_RARE_ELIGIBLE_CATEGORIES exclusion Phase 4 uses, and for the same
+#      reason: a hot afternoon or a polluted evening is a city-wide condition, not a
+#      situation localized to one hex;
+#   3. severity_weighted clears this floor.
+# Measured on the 14-day history, these three gates together produce 0.14 standalone
+# situations per day -- see engine/verify_linker.py check (i).
+STANDALONE_MIN_SEVERITY_WEIGHTED = 0.25
+# A single anomaly has no independent corroboration by construction, so its confidence
+# is capped here however strong it looks on the other axes.
+STANDALONE_MAX_CONFIDENCE = "med"
+
+# CONTRACT.md §F confidence table, boundary resolved: "all gaps under 30 min" for high
+# and "one gap over 30 min" for med left exactly 1800s undefined. Inclusive: a gap of
+# exactly 30 minutes is still `high`. GT-002 lands on this boundary exactly.
+CONFIDENCE_HIGH_MAX_GAP_SEC = 1800
+CONFIDENCE_HIGH_MIN_SOURCES = 3
+CONFIDENCE_MED_MIN_SOURCES = 2
+CONFIDENCE_LOW_MEMBER_CONFIDENCE = 0.5
+CONFIDENCE_ORDER = ("low", "med", "high")
+
+# Link scoring weights. A link's strength is the product of how close in space, how
+# well the gap fits the pair's window, and how much the pair co-occurs above chance.
+LINK_W_SPACE = 0.4
+LINK_W_TIME = 0.4
+LINK_W_LIFT = 0.2
+
+# CONTRACT.md §E.1 carries two trigger types and they are NOT interchangeable evidence.
+# A `rare` anomaly is one consequential event (an outage, two dark junctions): its
+# weight comes from severity, because there is no count to speak of. A `volume`
+# anomaly is a cluster: its weight comes from how far the observed count overshot the
+# expected one. Averaging the two onto a single scale would let five trivial complaints
+# outvote a substation failure.
+EVIDENCE_RARE_SEVERITY_SCALE = 1.0      # severity_weighted -> 0..1 via /(x + this)
+EVIDENCE_VOLUME_EXCESS_SCALE = 4.0      # (observed-expected) -> 0..1 via /(x + this)
+
+
+# --- Phase 6: replay server constants ----------------------------------------
+
+# Allowed replay speeds. CONTRACT.md §E lists 1..16; the prompt requires up to ~200x
+# so the 3-hour window completes in ~54 real seconds for the pitch demo.
+REPLAY_ALLOWED_SPEEDS = (1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 100.0, 200.0)
+
+# Bookmarks: named moments in the monsoon_evening scenario.
+# Each maps to a simulated UTC timestamp. POST /control jump_to(bookmark) jumps the
+# clock directly there, and the caller recomputes served state as-of that instant.
+REPLAY_BOOKMARKS = {
+    "window_start":         "2026-09-24T12:00:00Z",
+    "storm_onset":          "2026-09-24T12:55:00Z",
+    "first_situation":      "2026-09-24T13:20:00Z",
+    "feed_kill_demo_point": "2026-09-24T13:35:00Z",
+    "gt002_onset":          "2026-09-24T13:20:00Z",
+    "gt003_onset":          "2026-09-24T13:05:00Z",
+    "peak_activity":        "2026-09-24T14:00:00Z",
+    "window_end":           "2026-09-24T15:00:00Z",
+}
+
+# Chaos-control kill_feed: serve-time confidence penalty.
+# "One level down" maps high->med, med->low, low->low.
+CHAOS_CONFIDENCE_PENALTY = {
+    "high": "med",
+    "med":  "low",
+    "low":  "low",
+}
+# Pulse-score serve-time penalty when a confidence drop is applied.
+CHAOS_PULSE_PENALTY = 5
+
+# Maximum replay speed the system supports.
+REPLAY_MAX_SPEED = 200.0
+
+# Tick interval in real seconds — one tick per real second regardless of speed.
+TICK_INTERVAL_SEC = 1.0
+
+# CONTRACT.md §E POST /control: the full action set.
+CONTROL_ACTIONS = (
+    "play", "pause", "speed", "kill_feed", "resume_feed",
+    "set_scenario", "jump_to",
+    "delay_feed", "inject_duplicate",
+)
+
+
 def severity_ramp(category: str) -> tuple:
     """Floor/ceiling for a category. All complaint.* share one ramp."""
     if category.startswith("complaint."):
