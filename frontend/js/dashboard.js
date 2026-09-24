@@ -118,9 +118,12 @@ function initSimConsole() {
   // content with zero layout box, so the canvas is never correctly sized
   // until *something* fires a resize after the console opens. Re-dispatch
   // one rather than touching naadi.js's own sizing code.
-  details.addEventListener("toggle", () => {
-    if (details.open) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  const resizeOnOpen = (el) => el.addEventListener("toggle", () => {
+    if (el.open) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   });
+  resizeOnOpen(details);
+  const trace = document.getElementById("sim-console-trace");
+  if (trace) resizeOnOpen(trace);
 }
 
 // ============================================================ city health ==

@@ -104,13 +104,21 @@
      this reveals the exact same play/pause/speed/bookmark/feed/scenario
      controls as before; nothing about them changed. -->
 <details class="sim-console" id="sim-console">
-  <summary class="sim-console__summary">Simulation console ▾</summary>
+  <summary class="sim-console__summary">
+    <span class="sim-console__title">Simulation console</span>
+    <span class="sim-console__subtitle">Replay &amp; feed controls</span>
+    <span class="sim-console__chev" aria-hidden="true">▾</span>
+  </summary>
   <div class="sim-console__body">
-    <!-- The one bold element. ECG-style trace of city event rate, driven by WS
-         tick messages. Hand-drawn canvas/SVG, never a chart library. -->
-    <header id="naadi-strip"></header>
-    <!-- POST /control: play, pause, speed, kill_feed, resume_feed, set_scenario. -->
+    <!-- POST /control: play, pause, speed, jump_to, kill_feed, resume_feed,
+         delay_feed, inject_duplicate, set_scenario. -->
     <section id="sim-controls"></section>
+    <!-- ECG-style trace of city event rate, driven by WS tick messages.
+         Unchanged; tucked into its own disclosure to keep the console compact. -->
+    <details class="sim-console__trace" id="sim-console-trace">
+      <summary class="sim-console__trace-summary">Event-rate trace</summary>
+      <header id="naadi-strip"></header>
+    </details>
   </div>
 </details>
 
