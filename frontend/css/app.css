@@ -3,3 +3,868 @@
    Components to build here: status block, alert chip, situation card,
    "Why do we think this?" timeline, Naadi strip, feed-health row,
    "probably unrelated" section. */
+
+/* ==================================================== Track A: map, Naadi strip, status block */
+
+/* This pass (Track A) owns: the status block, the Naadi strip, the map's
+   landmark labels/numbered dots, and the "Simulated data" banner. Rules for
+   #situation-rail, #unrelated-section, #feed-health, #data-room and
+   #sim-controls belong to Track B (js/situations.js, js/controls.js,
+   js/dataroom.js) and are intentionally not touched here. */
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--chuna);
+  color: var(--syahi);
+  font-family: var(--font);
+}
+
+/* ------------------------------------------------------ type-scale utils --
+   DESIGN.md's type scale, as reusable classes so every component (this
+   file's and Track B's) reads from the same five roles instead of each
+   hand-rolling font-size/weight/stretch. */
+
+.display, .heading, .body, .label, .data {
+  font-family: var(--font);
+  margin: 0;
+}
+.display  { font-size: var(--display-size); line-height: var(--display-lh); font-weight: var(--display-wght); font-stretch: calc(var(--display-wdth) * 1%); }
+.heading  { font-size: var(--heading-size); line-height: var(--heading-lh); font-weight: var(--heading-wght); font-stretch: calc(var(--heading-wdth) * 1%); }
+.body     { font-size: var(--body-size);    line-height: var(--body-lh);    font-weight: var(--body-wght);    font-stretch: calc(var(--body-wdth) * 1%); }
+.label    { font-size: var(--label-size);   line-height: var(--label-lh);   font-weight: var(--label-wght);   font-stretch: calc(var(--label-wdth) * 1%); }
+.data     { font-size: var(--data-size);    line-height: var(--data-lh);    font-weight: var(--data-wght);    font-stretch: calc(var(--data-wdth) * 1%); font-variant-numeric: tabular-nums; }
+
+/* Devanagari vertical rhythm: "any line rendering Hindi gets +0.15 added to
+   its line-height" — one rule, not per component (DESIGN.md, Typography). */
+.display[lang="hi"] { line-height: calc(var(--display-lh) + var(--hi-lh-bump)); }
+.heading[lang="hi"] { line-height: calc(var(--heading-lh) + var(--hi-lh-bump)); }
+.body[lang="hi"]    { line-height: calc(var(--body-lh) + var(--hi-lh-bump)); }
+.label[lang="hi"]   { line-height: calc(var(--label-lh) + var(--hi-lh-bump)); }
+.data[lang="hi"]    { line-height: calc(var(--data-lh) + var(--hi-lh-bump)); }
+
+/* ------------------------------------------------------------ maplibre ---
+   Strip the default control chrome down to the token language: no shadow,
+   ink-thin borders, paper background. (DESIGN.md anti-tells: no shadows.) */
+.maplibregl-ctrl-group {
+  box-shadow: none;
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  background: var(--chuna);
+  overflow: hidden;
+}
+.maplibregl-ctrl-group button {
+  background: var(--chuna);
+}
+.maplibregl-ctrl-group button:hover {
+  background: var(--rekha);
+}
+.maplibregl-ctrl-attrib {
+  background: color-mix(in srgb, var(--chuna) 80%, transparent);
+  font-family: var(--font);
+  color: var(--dhool);
+}
+.maplibregl-ctrl-attrib a { color: var(--dhool); }
+.maplibregl-popup-content {
+  box-shadow: none;
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  font-family: var(--font);
+  color: var(--syahi);
+}
+.maplibregl-popup-tip { display: none; }
+
+/* --------------------------------------------------------------- #map ---- */
+#map {
+  position: relative;
+  width: 100%;
+  height: min(70vh, 640px);
+  background: var(--chuna);
+  border-bottom: var(--border);
+}
+
+/* Landmark label (bilingual, always-on — no hover state, no icon). */
+.nn-landmark {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  padding-left: 10px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.nn-landmark::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 5px;
+  height: 5px;
+  margin-top: -2.5px;
+  border-radius: 50%;
+  background: var(--syahi);
+}
+.nn-landmark__en {
+  color: var(--syahi);
+  font-weight: 600;
+  background: color-mix(in srgb, var(--chuna) 85%, transparent);
+  padding: 0 3px;
+}
+.nn-landmark__hi {
+  color: var(--dhool);
+  background: color-mix(in srgb, var(--chuna) 85%, transparent);
+  padding: 0 3px;
+}
+
+/* Numbered dot — DESIGN.md component #4, reused on the map for a
+   situation's chain order. Not colored by status; the number is the
+   argument, per DESIGN.md. */
+.nn-dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--syahi);
+  background: var(--chuna);
+  color: var(--syahi);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.2s linear;
+}
+
+/* ------------------------------------------------------------- #status-block
+   DESIGN.md component #1. No card, no border, no shadow — a bar and text
+   directly on --chuna. Never animated. */
+.nn-status {
+  display: flex;
+  align-items: stretch;
+  background: var(--chuna);
+  padding: var(--s5) 0;
+  box-sizing: border-box;
+}
+.nn-status__bar {
+  flex: 0 0 6px;
+  width: 6px;
+  margin-right: var(--s4);
+  background: var(--dhool);
+}
+.nn-status--green  .nn-status__bar { background: var(--green); }
+.nn-status--yellow .nn-status__bar { background: var(--yellow); }
+.nn-status--orange .nn-status__bar { background: var(--orange); }
+.nn-status--red    .nn-status__bar { background: var(--red); }
+.nn-status__body {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--s1);
+}
+.nn-status__word {
+  color: var(--syahi); /* color lives in the bar, not the word */
+}
+.nn-status__summary {
+  color: var(--syahi);
+  max-width: 68ch;
+}
+.nn-status__summary--hi {
+  color: var(--dhool);
+}
+.nn-status__meta {
+  display: flex;
+  gap: var(--s3);
+  margin-top: var(--s1);
+}
+.nn-status__updated {
+  color: var(--dhool);
+}
+
+/* -------------------------------------------------------------- #naadi-strip
+   DESIGN.md component #5 — the one bold element — plus the per-feed lanes
+   and the play/speed scrub row this build adds beneath it. See naadi.js for
+   the exact pixel budget (MAIN_H/LANE_H/CTRL_H) that these rules assume. */
+#naadi-strip {
+  position: relative;
+  display: block;
+  width: 100%;
+  background: var(--chuna);
+  border-bottom: var(--border);
+  overflow: hidden;
+}
+.nn-naadi__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+}
+.nn-naadi__value {
+  position: absolute;
+  top: 8px;
+  right: var(--s3);
+  color: var(--syahi);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.nn-naadi__pulse {
+  position: absolute;
+  top: 30px;
+  right: var(--s3);
+  color: var(--dhool);
+  pointer-events: none;
+  white-space: nowrap;
+}
+.nn-naadi__markers {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+.nn-naadi__marker-label {
+  position: absolute;
+  top: 52px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  color: var(--syahi);
+}
+.nn-naadi__lanes-meta {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.nn-naadi__lane-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--s3);
+  box-sizing: border-box;
+}
+.nn-naadi__lane-label,
+.nn-naadi__lane-state {
+  color: var(--dhool);
+  background: color-mix(in srgb, var(--chuna) 88%, transparent);
+}
+.nn-naadi__lane-label { padding-right: 6px; }
+.nn-naadi__lane-state { padding-left: 6px; text-align: right; }
+.nn-naadi__lane-row--killed .nn-naadi__lane-label {
+  text-decoration: line-through;
+  text-decoration-color: var(--syahi);
+}
+.nn-naadi__controls {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  padding: 0 var(--s3);
+  border-top: var(--border);
+  background: var(--chuna);
+}
+.nn-naadi__playbtn {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  color: var(--neel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.nn-naadi__playbtn:hover {
+  text-decoration-thickness: 2px;
+}
+.nn-naadi__speedtrack {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 120px;
+  height: 20px;
+  cursor: pointer;
+  touch-action: none;
+}
+.nn-naadi__speedtrack::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: var(--rekha);
+  transform: translateY(-50%);
+}
+.nn-naadi__speedtrack-fill {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  height: 2px;
+  width: 0;
+  background: var(--neel);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+.nn-naadi__speedtrack-handle {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--neel);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.nn-naadi__speed-tick {
+  position: absolute;
+  top: -14px;
+  transform: translateX(-50%);
+  color: var(--dhool);
+  pointer-events: none;
+}
+.nn-naadi__clock {
+  color: var(--dhool);
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.nn-naadi__seek-note {
+  color: var(--dhool);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 30ch;
+  flex: 0 1 auto;
+}
+
+@media (max-width: 640px) {
+  .nn-naadi__seek-note { display: none; }
+}
+
+/* ==================================================== Track B: situations, resident, controls, data room */
+
+/* ------------------------------------------------------------- base --- */
+
+body {
+  margin: 0;
+  background: var(--chuna);
+  color: var(--syahi);
+  font-family: var(--font);
+  font-size: var(--body-size);
+  line-height: var(--body-lh);
+}
+
+[lang="hi"] { line-height: calc(var(--body-lh) + var(--hi-lh-bump)); }
+
+#simulated-banner {
+  background: var(--chuna);
+  color: var(--dhool);
+  border-bottom: var(--border);
+  padding: var(--s2) var(--s4);
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+}
+#simulated-banner:empty { display: none; }
+
+/* A generic text-button: neel, underlined, no background, no icon.
+   DESIGN.md's "buttons name their exact action" applies to the label text
+   this class is attached to, not to this rule itself. */
+.text-button {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--neel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font: inherit;
+  font-size: var(--label-size);
+  cursor: pointer;
+}
+.text-button:hover { text-decoration-thickness: 2px; }
+.text-button.is-active { font-weight: 700; }
+
+/* -------------------------------------------------------- status block */
+/* DESIGN.md §1. Shared by the city view (Track A) and the resident view
+   (js/resident.js's local equivalent) — same DOM shape either way. */
+
+#status-block, .status-block {
+  display: flex;
+  gap: var(--s4);
+  padding: var(--s4) 0;
+}
+.status-block__bar {
+  flex: 0 0 6px;
+  width: 6px;
+  align-self: stretch;
+  background: var(--dhool);
+}
+#status-block[data-level="green"] .status-block__bar,
+.status-block[data-level="green"] .status-block__bar { background: var(--green); }
+#status-block[data-level="yellow"] .status-block__bar,
+.status-block[data-level="yellow"] .status-block__bar { background: var(--yellow); }
+#status-block[data-level="orange"] .status-block__bar,
+.status-block[data-level="orange"] .status-block__bar { background: var(--orange); }
+#status-block[data-level="red"] .status-block__bar,
+.status-block[data-level="red"] .status-block__bar { background: var(--red); }
+
+.status-block__word, .status-block__word-hi {
+  margin: 0 0 var(--s2);
+  font-size: var(--display-size);
+  line-height: var(--display-lh);
+  font-weight: var(--display-wght);
+  font-stretch: var(--display-wdth)%;
+  color: var(--syahi);
+}
+.status-block__word-hi { font-size: calc(var(--display-size) * 0.6); }
+.status-block__context {
+  margin: 0 0 var(--s2);
+  color: var(--syahi);
+}
+.status-block__freshness {
+  margin: 0;
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- alert chip */
+/* DESIGN.md §2. */
+
+.alert-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 var(--s2);
+  border-radius: var(--radius-chip);
+  gap: 6px;
+}
+.alert-chip__swatch { width: 8px; height: 8px; flex: none; }
+.alert-chip__label {
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--syahi);
+  white-space: nowrap;
+}
+.alert-chip--green  { background: var(--green-fill);  border: 1px solid var(--green-edge); }
+.alert-chip--yellow { background: var(--yellow-fill); border: 1px solid var(--yellow-edge); }
+.alert-chip--orange { background: var(--orange-fill); border: 1px solid var(--orange-edge); }
+.alert-chip--red    { background: var(--red-fill);    border: 1px solid var(--red-edge); }
+.alert-chip--green  .alert-chip__swatch { background: var(--green); }
+.alert-chip--yellow .alert-chip__swatch { background: var(--yellow); }
+.alert-chip--orange .alert-chip__swatch { background: var(--orange); }
+.alert-chip--red    .alert-chip__swatch { background: var(--red); }
+
+/* ----------------------------------------------------- situation card */
+/* DESIGN.md §3. */
+
+#situation-rail, .situation-list, .unrelated-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+.situation-rail__empty {
+  color: var(--dhool);
+  margin: 0;
+}
+
+.situation-card {
+  position: relative;
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius);
+  background: var(--chuna);
+  padding: var(--s4);
+  padding-left: calc(var(--s4) + 4px);
+  cursor: pointer;
+}
+.situation-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; bottom: 0;
+  width: 4px;
+  background: var(--dhool);
+}
+.situation-card[data-level="green"]::before  { background: var(--green); }
+.situation-card[data-level="yellow"]::before { background: var(--yellow); }
+.situation-card[data-level="orange"]::before { background: var(--orange); }
+.situation-card[data-level="red"]::before {
+  background: var(--red);
+  background-image: repeating-linear-gradient(45deg, transparent 0 5px,
+    color-mix(in srgb, var(--red) 28%, transparent) 5px 7px);
+}
+.situation-card.is-selected {
+  border-color: var(--neel);
+  box-shadow: inset 0 0 0 2px var(--neel);
+}
+.situation-card--decoy {
+  border-style: dashed;
+  cursor: default;
+}
+.situation-card--decoy::before { display: none; }
+.situation-card--decoy .situation-card__headline-en,
+.situation-card--decoy .situation-card__headline-hi { color: var(--dhool); }
+
+.situation-card__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-bottom: var(--s2);
+}
+.situation-card__zone {
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.situation-card__headline-en {
+  margin: 0 0 var(--s1);
+  font-size: var(--heading-size);
+  line-height: var(--heading-lh);
+  font-weight: var(--heading-wght);
+  font-stretch: var(--heading-wdth)%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.situation-card__headline-hi {
+  margin: 0 0 var(--s3);
+  color: var(--dhool);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.situation-card__facts {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+  font-variant-numeric: tabular-nums;
+}
+.situation-card__fact-rule {
+  width: 1px;
+  height: 12px;
+  background: var(--rekha);
+}
+.situation-card__decoy-reason {
+  margin: var(--s2) 0 0;
+  color: var(--dhool);
+}
+
+/* Entrance animation — the ONE orchestrated motion, DESIGN.md "Motion".
+   Reduced-motion support is free: tokens.css sets --form-duration: 0s under
+   prefers-reduced-motion, collapsing this transition to nothing. */
+.situation-card--enter {
+  opacity: 0;
+  transform: translateX(16px);
+}
+.situation-card--enter.situation-card--enter-active {
+  transition: opacity var(--form-duration) var(--form-ease),
+              transform var(--form-duration) var(--form-ease);
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* -------------------------------------------- "why do we think this?" */
+/* DESIGN.md §4. */
+
+.situation-timeline { margin-top: var(--s3); }
+.situation-timeline__loading { color: var(--dhool); margin: 0; }
+
+.timeline-steps {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  border-left: 1.5px solid var(--rekha);
+  margin-left: 10px;
+}
+.timeline-step {
+  position: relative;
+  display: flex;
+  gap: var(--s3);
+  padding: var(--s2) 0 var(--s2) var(--s4);
+  align-items: flex-start;
+}
+.timeline-step__dot {
+  position: absolute;
+  left: -11px;
+  top: var(--s2);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1.5px solid var(--syahi);
+  background: var(--chuna);
+  color: var(--syahi);
+  font-size: var(--data-size);
+  font-weight: var(--data-wght);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+.timeline-step__body { flex: 1; min-width: 0; }
+.timeline-step__en { margin: 0; }
+.timeline-step__hi { margin: 0; color: var(--dhool); }
+.timeline-step__meta {
+  flex: none;
+  text-align: right;
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+  max-width: 40%;
+}
+
+.evidence-footer {
+  list-style: none;
+  margin: 0 0 var(--s3);
+  padding: 0;
+}
+.evidence-footer li { margin-bottom: var(--s1); }
+
+.confidence-line { margin: 0; }
+.confidence-reason { margin: 0 0 var(--s3); color: var(--dhool); }
+
+.predicted-next {
+  margin: 0 0 var(--s1);
+  color: var(--dhool);
+  font-style: normal;
+}
+
+.source-events { margin-top: var(--s3); }
+.source-events__heading {
+  margin: 0 0 var(--s2);
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+}
+.source-events ul { list-style: none; margin: 0; padding: 0; }
+.source-events li {
+  padding: var(--s1) 0;
+  border-top: 1px solid var(--rekha);
+  font-size: var(--label-size);
+}
+.source-events li:first-child { border-top: none; }
+
+/* Condensed variant for the resident view's smaller screen. */
+.timeline-steps--condensed { margin-left: 8px; }
+.situation-timeline--condensed .timeline-step__dot { width: 18px; height: 18px; left: -9px; font-size: var(--label-size); }
+
+/* --------------------------------------------------- probably unrelated */
+/* DESIGN.md §7. */
+
+#unrelated-section, .unrelated-section {
+  margin-top: var(--s6);
+  padding-top: var(--s6);
+  border-top: 1px solid var(--rekha);
+}
+#unrelated-section[hidden] { display: none; }
+.unrelated-section__heading {
+  margin: 0 0 var(--s1);
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+}
+.unrelated-section__heading-hi { margin: 0 0 var(--s2); color: var(--dhool); font-size: var(--label-size); }
+.unrelated-section__intro { margin: 0 0 var(--s1); color: var(--dhool); }
+.unrelated-section__intro--hi { margin: 0 0 var(--s4); color: var(--dhool); }
+
+/* -------------------------------------------------------- feed health */
+/* DESIGN.md §6. */
+
+.feed-health-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  height: 44px;
+  border-bottom: 1px solid var(--rekha);
+}
+.feed-health-row__name { flex: 1 1 auto; }
+.feed-health-row__state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  min-width: 160px;
+}
+.feed-health-row__mark { width: 8px; height: 8px; flex: none; display: inline-block; }
+.feed-health-row__state--live .feed-health-row__mark { background: var(--green); }
+.feed-health-row__state--stale .feed-health-row__mark { background: transparent; border: 1px solid var(--dhool); }
+.feed-health-row__state--killed .feed-health-row__mark {
+  background: var(--syahi);
+  position: relative;
+}
+.feed-health-row__state--killed .feed-health-row__mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top right, transparent 45%, var(--chuna) 45%, var(--chuna) 55%, transparent 55%);
+}
+.feed-health-row__state--error .feed-health-row__mark {
+  background: var(--red);
+  background-image: repeating-linear-gradient(45deg, transparent 0 2px,
+    color-mix(in srgb, var(--red) 60%, transparent) 2px 3px);
+}
+.feed-health-row__state--stale, .feed-health-row__state--killed { color: var(--dhool); }
+.feed-health-row__counts {
+  flex: 0 0 auto;
+  color: var(--dhool);
+  font-size: var(--label-size);
+  font-variant-numeric: tabular-nums;
+}
+.feed-health-row__control { flex: 0 0 auto; }
+.feed-health__empty { color: var(--dhool); }
+
+/* -------------------------------------------------------- sim controls */
+
+#sim-controls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  padding: var(--s4) 0;
+}
+.sim-controls__status { margin: 0; color: var(--dhool); font-size: var(--label-size); }
+.sim-controls__group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+.sim-controls__group-label {
+  font-size: var(--label-size);
+  font-weight: var(--label-wght);
+  font-stretch: var(--label-wdth)%;
+  color: var(--dhool);
+  flex: 0 0 100%;
+}
+.sim-controls__feeds { flex-direction: column; align-items: stretch; }
+.sim-controls__feed-row {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--rekha);
+}
+.sim-controls__feed-row > span:first-child { flex: 1 1 auto; }
+
+/* --------------------------------------------------------- data room */
+
+#data-room { padding: var(--s4) 0; }
+.data-room__tabs { display: flex; flex-wrap: wrap; gap: var(--s3); margin-bottom: var(--s4); }
+.data-room__tab.is-active { font-weight: 700; text-decoration-thickness: 2px; }
+.data-room__loading { color: var(--dhool); }
+.data-room__panes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s4);
+}
+.data-room__col h3 { margin: 0 0 var(--s1); font-size: var(--heading-size); }
+.data-room__col-hi { margin: 0 0 var(--s3); color: var(--dhool); }
+.data-room__csv-header {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: var(--label-size);
+  color: var(--dhool);
+  overflow-x: auto;
+  white-space: pre;
+}
+.data-room__raw-row, .data-room__clean-row {
+  padding: var(--s2) 0;
+  border-top: 1px solid var(--rekha);
+}
+.data-room__raw-row:first-of-type, .data-room__clean-row:first-of-type { border-top: none; }
+.data-room__raw-text {
+  display: block;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: var(--label-size);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.data-room__raw-meta { margin: var(--s1) 0 0; color: var(--dhool); font-size: var(--label-size); }
+.data-room__clean-empty { margin: 0; color: var(--dhool); }
+.data-room__clean-row p { margin: 0; }
+.data-room__duplicate-flag {
+  display: inline-block;
+  padding: 0 6px;
+  border: 1px solid var(--red-edge);
+  background: var(--red-fill);
+  color: var(--syahi);
+  font-size: var(--label-size);
+  border-radius: var(--radius-chip);
+}
+.data-room__duplicates { margin-top: var(--s5); }
+.data-room__duplicates-heading { font-size: var(--label-size); color: var(--dhool); margin: 0 0 var(--s2); }
+.data-room__duplicates ul { list-style: none; margin: 0; padding: 0; }
+.data-room__duplicates li { padding: var(--s1) 0; border-top: 1px solid var(--rekha); font-size: var(--label-size); }
+
+.data-room__scorecard { margin-top: var(--s5); }
+.scorecard__primary, .scorecard__secondary {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--s1) var(--s4);
+  margin: var(--s3) 0;
+}
+.scorecard__primary dt, .scorecard__secondary dt { color: var(--dhool); font-size: var(--label-size); }
+.scorecard__primary dd, .scorecard__secondary dd { margin: 0; font-variant-numeric: tabular-nums; }
+.scorecard__caveat { color: var(--dhool); font-size: var(--label-size); }
+
+@media (max-width: 720px) {
+  .data-room__panes { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------------- resident view */
+
+#resident-view {
+  max-width: 480px;
+  margin: 0 auto;
+  padding: var(--s4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+#lang-toggle { display: flex; gap: var(--s3); justify-content: flex-end; }
+.area-picker__label {
+  display: block;
+  font-size: var(--label-size);
+  color: var(--dhool);
+  margin-bottom: var(--s1);
+}
+.area-picker__select {
+  width: 100%;
+  font: inherit;
+  padding: var(--s2);
+  border: var(--border);
+  border-radius: var(--radius);
+  background: var(--chuna);
+  color: var(--syahi);
+}
+#area-picker[hidden] { display: none; }
+.situation-summary__headline { font-size: var(--heading-size); margin: 0 0 var(--s2); }
+.situation-summary__action-heading {
+  font-size: var(--label-size);
+  color: var(--dhool);
+  margin: 0 0 var(--s1);
+}
+.situation-summary__action { margin: 0 0 var(--s2); }
+.situation-summary__updated { font-size: var(--label-size); color: var(--dhool); margin: 0 0 var(--s2); }
+.situation-summary__empty { color: var(--dhool); }
+.situation-list__heading { font-size: var(--label-size); color: var(--dhool); margin: 0; }

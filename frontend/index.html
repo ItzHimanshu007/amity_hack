@@ -48,6 +48,14 @@
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
-<!-- Phase 7-9 add their modules here, e.g. <script type="module" src="js/city.js"></script> -->
+<!-- city.js: the map + status block (via js/statusblock.js). naadi.js: the
+     ECG strip + scrubber. situations.js/controls.js/dataroom.js: the rail,
+     playback/chaos controls, and data room. All import js/api.js as an ES
+     module; js/api.js needs no tag of its own. -->
+<script type="module" src="js/city.js"></script>
+<script type="module" src="js/naadi.js"></script>
+<script type="module" src="js/situations.js"></script>
+<script type="module" src="js/controls.js"></script>
+<script type="module" src="js/dataroom.js"></script>
 </body>
 </html>

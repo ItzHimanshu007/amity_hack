@@ -14,9 +14,24 @@
 
 <main id="resident-view">
 
+  <!-- EN/हिंदी toggle. Swaps framing_text/headline/chain text and the static
+       UI strings table — not a full i18n framework, see js/resident.js. -->
+  <div id="lang-toggle"></div>
+
   <!-- The whole first screen: one status word, one line of context, one
-       freshness line, English over Hindi. DESIGN.md §1. No map above the fold. -->
+       freshness line, English over Hindi. DESIGN.md §1. No map above the fold.
+       Always driven by the city-wide roll-up (never a per-area figure — see
+       js/resident.js for why: /state does not yet expose a per-cell roll-up,
+       and DESIGN.md §1 pins this block to the `city` block regardless). -->
   <section id="status-block"></section>
+
+  <!-- Which area a resident cares about. Filters situation-list and picks
+       which situation's one-line summary/suggested action is shown below. -->
+  <section id="area-picker"></section>
+
+  <!-- One-sentence summary + one suggested action for the picked/top
+       situation, and the condensed "Why do we think this?" timeline. -->
+  <section id="situation-summary"></section>
 
   <!-- Situation cards in plain language. Resident view never shows an H3 index. -->
   <section id="situation-list"></section>
@@ -26,6 +41,6 @@
 
 </main>
 
-<!-- Phase 7-9 add their modules here, e.g. <script type="module" src="js/resident.js"></script> -->
+<script type="module" src="js/resident.js"></script>
 </body>
 </html>
