@@ -34,6 +34,23 @@ CATEGORIES = (
 
 COMPLAINT_CATEGORIES = tuple(c for c in CATEGORIES if c.startswith("complaint."))
 
+# category -> the set of feed ids that emit it. traffic.signal_down is the only
+# multi-source category (CONTRACT.md §D dedupe carve-out) -- two independent feeds
+# reporting the same category on purpose, never merged.
+CATEGORY_FEEDS = {
+    "weather.rain": {"weather_imd"},
+    "weather.heat": {"weather_imd"},
+    "air.pm25": {"air_sensors"},
+    "power.outage": {"power_discom"},
+    "traffic.signal_down": {"power_discom", "civic_complaints"},
+    "transit.delay": {"transit_gtfs"},
+    "complaint.waterlogging": {"civic_complaints"},
+    "complaint.garbage": {"civic_complaints"},
+    "complaint.streetlight": {"civic_complaints"},
+    "complaint.road_damage": {"civic_complaints"},
+    "complaint.smoke": {"civic_complaints"},
+}
+
 # --- CONTRACT.md §D: feeds ----------------------------------------------------
 FEEDS = {
     "weather_imd":      {"interval_sec": 300, "format": "jsonl", "file": "raw_weather_imd.jsonl"},
@@ -73,6 +90,41 @@ ALERT_LEVELS = ("green", "yellow", "orange", "red")
 
 # --- CONTRACT.md §E -----------------------------------------------------------
 ACTIVE_WINDOW_SEC = 1800
+
+# --- CONTRACT.md §E.1: anomaly detection --------------------------------------
+ANOMALY_WINDOW_SEC = 3600            # rolling 60-minute window
+
+# Volume trigger: a cluster of the same category in one cell.
+ANOMALY_P_THRESHOLD = 0.01           # flag when p_value < this
+ANOMALY_MIN_COUNT = 3                # AND observed_count >= this
+
+# Rare trigger: a category that essentially never happens in this cell at this hour,
+# firing at all. The count>=3 floor exists to stop an unreliable lambda (estimated from
+# thin history) calling a single event significant -- so the rare path keeps the strict
+# statistics and instead requires the lambda to be well-supported. Without this, a
+# cascade is undetectable by construction: it is one power outage, one rain onset and
+# two dark junctions, none of which can ever reach a count of 3.
+ANOMALY_RARE_P_THRESHOLD = 0.005     # stricter than the volume path
+ANOMALY_RARE_MIN_COUNT = 1
+# A rare-triggered anomaly must also be CONSEQUENTIAL, not merely statistically odd.
+# Measured on held-out data, planted cascade events carry median severity_weighted 0.50
+# while rare-trigger false positives sit at median 0.06 -- severity separates the two
+# populations far better than the p-value alone, because ordinary civic noise is
+# low-magnitude by nature. This gate is what lets the p-threshold stay loose enough to
+# catch a lone power outage without dragging in every quiet complaint.
+ANOMALY_RARE_MIN_SEVERITY = 0.40
+# lambda rungs (engine.baseline.lambda_for) trusted enough for the rare trigger:
+ANOMALY_RARE_TRUSTED_LEVELS = ("cell_category_hour", "shrunk_to_prior")
+
+# The rare trigger applies only to DISCRETE-INCIDENT categories. weather.heat and
+# air.pm25 are sustained sensor conditions: a hot afternoon is hot for hours and a
+# polluted evening is polluted city-wide, so their counts are strongly correlated
+# day-to-day and badly over-dispersed relative to Poisson. A single threshold crossing
+# there is not surprising and flagging one produced the large majority of all false
+# positives (heat + pm25 were 127 of 168 in measurement). They can still be flagged by
+# the VOLUME trigger, which is what a genuine heat or pollution cluster looks like.
+ANOMALY_RARE_ELIGIBLE_CATEGORIES = frozenset(
+    c for c in CATEGORIES if c not in ("weather.heat", "air.pm25"))
 
 
 def severity_ramp(category: str) -> tuple:

@@ -18,7 +18,7 @@ hand, so ingest.run applies it as a second pass.
 from contract_constants import CONFIDENCE
 from ingest.geocode import Unresolved
 from ingest.normalize import (RESOLUTION_LANDMARK, build_event, confidence_for,
-                              from_ist_complaint, received_at_for, ref_complaint)
+                              from_ist_complaint, iso, received_at_for, ref_complaint)
 from ingest.parsers import category_for_complaint, read_complaints_csv
 from ingest.pii import count_pii
 
@@ -28,7 +28,9 @@ FEED = "civic_complaints"
 def extract(resolver, data_dir=None):
     stats = {"records": 0, "candidates": 0, "dropped_unmapped_type": 0,
              "dropped_unresolved": 0, "dropped_bad_timestamp": 0,
-             "pii_items_seen": 0, "records_with_pii": 0, "closed_rows": 0}
+             "pii_items_seen": 0, "records_with_pii": 0, "closed_rows": 0,
+             "last_raw_received_at": None}
+    last_raw = None
     out = []
 
     for _n, row, _raw_line in read_complaints_csv(data_dir):
@@ -44,6 +46,12 @@ def extract(resolver, data_dir=None):
         except (ValueError, KeyError):
             stats["dropped_bad_timestamp"] += 1
             continue
+
+        # A row the register sent proves liveness even if we later drop it for an
+        # unmapped type or an unresolvable address.
+        arrived = received_at_for(FEED, start)
+        if last_raw is None or arrived > last_raw:
+            last_raw = arrived
 
         # CONTRACT.md §D.2: landmark first, then locality. Never guess a centroid.
         try:
@@ -76,4 +84,5 @@ def extract(resolver, data_dir=None):
             resolution=resolution))
         stats["candidates"] += 1
 
+    stats["last_raw_received_at"] = iso(last_raw) if last_raw else None
     return out, stats

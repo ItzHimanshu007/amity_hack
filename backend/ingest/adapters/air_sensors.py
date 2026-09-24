@@ -15,7 +15,7 @@ from collections import defaultdict
 
 from contract_constants import CONFIDENCE, crosses_floor
 from ingest.normalize import (RESOLUTION_DIRECT, build_event, confidence_for,
-                              from_iso_z, ref_air)
+                              from_iso_z, iso, received_at_for, ref_air)
 from ingest.parsers import read_jsonl
 
 FEED = "air_sensors"
@@ -25,7 +25,9 @@ LOW_BATTERY_PCT = 15
 
 def extract(resolver, data_dir=None):
     stats = {"records": 0, "candidates": 0, "dropped_faulty": 0,
-             "dropped_unresolved": 0, "episodes": 0, "unhealthy_sensors": set()}
+             "dropped_unresolved": 0, "episodes": 0, "unhealthy_sensors": set(),
+             "last_raw_received_at": None}
+    last_raw = None
     out = []
     open_ep = {}
     by_sensor = defaultdict(list)
@@ -33,6 +35,10 @@ def extract(resolver, data_dir=None):
     for _n, rec in read_jsonl(FEED, data_dir):
         stats["records"] += 1
         by_sensor[rec["sensor"]].append(rec)
+        # A faulty reading still proves the sensor transmitted.
+        arrived = received_at_for(FEED, from_iso_z(rec["captured"]))
+        if last_raw is None or arrived > last_raw:
+            last_raw = arrived
 
     for sensor, records in by_sensor.items():
         for rec in records:
@@ -69,6 +75,7 @@ def extract(resolver, data_dir=None):
                 del open_ep[sensor]
 
     stats["unhealthy_sensors"] = sorted(stats["unhealthy_sensors"])
+    stats["last_raw_received_at"] = iso(last_raw) if last_raw else None
     return out, stats
 
 

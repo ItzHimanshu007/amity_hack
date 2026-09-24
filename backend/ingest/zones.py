@@ -6,6 +6,7 @@ Pure geometry only: no parsing, no normalization, no feed knowledge.
 
 import json
 import math
+import re
 from functools import lru_cache
 from pathlib import Path
 
@@ -19,6 +20,10 @@ LANDMARKS_PATH = Path(__file__).resolve().parents[1] / "sim" / "landmarks.json"
 
 # Prefixes the complaints feed sticks in front of a landmark name (CONTRACT.md §D.2).
 ADDRESS_PREFIXES = ("near", "opp", "opposite", "behind", "nr.", "nr", "in front of", "next to")
+
+# A candidate shorter than this (letters only) can never be a real landmark address --
+# it rejects junk placeholders like "NA" / "-" / "Unknown" before they reach matching.
+_MIN_LANDMARK_CANDIDATE_LETTERS = 4
 
 
 @lru_cache(maxsize=1)
@@ -107,6 +112,12 @@ def resolve_landmark_text(text: str):
 
     Case-insensitive, strips the address prefixes the complaints feed uses, and matches
     on containment so trailing detail ('Bus Stand', 'Gate 2') does not break it.
+
+    Matching is WORD-BOUNDARY containment, not raw substring: plain `"na" in s` would
+    match the junk placeholder "NA" against "vaishali NAgar" or "malviya NAgar" and
+    silently resolve an intentionally-unresolvable row to the wrong landmark. A short
+    candidate (below _MIN_LANDMARK_CANDIDATE_LETTERS letters) is rejected outright,
+    since no real landmark address is that short.
     """
     if not text:
         return None
@@ -115,10 +126,18 @@ def resolve_landmark_text(text: str):
         if s.startswith(prefix + " "):
             s = s[len(prefix) + 1:].strip()
             break
+    if len(re.sub(r"[^a-z]", "", s)) < _MIN_LANDMARK_CANDIDATE_LETTERS:
+        return None
+
     best = None
     for lm in load_landmarks():
         name = lm["name"].lower()
-        if s == name or name in s or s in name:
+        matches = (
+            s == name
+            or re.search(rf"\b{re.escape(name)}\b", s)
+            or re.search(rf"\b{re.escape(s)}\b", name)
+        )
+        if matches:
             # Prefer the longest matching name: 'Jal Mahal' should not win 'Hawa Mahal'.
             if best is None or len(lm["name"]) > len(best["name"]):
                 best = lm

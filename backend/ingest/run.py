@@ -19,14 +19,14 @@ from ingest.adapters import ADAPTERS                             # noqa: E402
 from ingest.cluster import apply_complaint_clusters              # noqa: E402
 from ingest.dedupe import assert_carveout_intact, fold           # noqa: E402
 from ingest.geocode import Resolver                              # noqa: E402
-from ingest.health import from_events                            # noqa: E402
+from ingest.health import from_raw_arrivals                      # noqa: E402
 from ingest.normalize import iso                                 # noqa: E402
 from ingest.pii import FREE_TEXT_FIELDS                          # noqa: E402
 
 OUTPUT_FILE = "events.jsonl"
 
 
-def run(data_dir: Path = None, verbose: bool = True):
+def run(data_dir: Path = None, verbose: bool = True, now_iso: str = None):
     data_dir = Path(data_dir) if data_dir else Path(__file__).resolve().parents[2] / "data"
     resolver = Resolver(data_dir)
 
@@ -44,10 +44,19 @@ def run(data_dir: Path = None, verbose: bool = True):
     cluster_stats = apply_complaint_clusters(events)
     events.sort(key=lambda e: (e["start_utc"], e["event_id"]))
 
-    now_iso = events[-1]["received_at"] if events else iso(__import__("datetime").datetime.now(
-        __import__("datetime").timezone.utc))
-    health_rows = from_events(
-        events, now_iso,
+    # Feed health is always "as of" some instant, and a batch run cannot guess it:
+    # the latest record in the file may be an outlier tail (a power RESTORE hours after
+    # the window everyone else stopped reporting in), which would make every other feed
+    # look stale by comparison. Callers that know their clock -- Phase 6's sim_time_utc,
+    # Phase 4's detection-window end -- pass it in. The default is the newest arrival.
+    last_raw_at = {f: per_feed[f]["stats"].get("last_raw_received_at") for f in FEEDS}
+    arrivals = [v for v in last_raw_at.values() if v]
+    if now_iso is None:
+        now_iso = max(arrivals) if arrivals else (
+            events[-1]["received_at"] if events else iso(
+                __import__("datetime").datetime.now(__import__("datetime").timezone.utc)))
+    health_rows = from_raw_arrivals(
+        last_raw_at, now_iso,
         totals={f: per_feed[f]["stats"].get("records", 0) for f in FEEDS},
     )
 

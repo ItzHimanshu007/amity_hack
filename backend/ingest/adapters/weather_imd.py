@@ -12,7 +12,7 @@ from collections import defaultdict
 
 from contract_constants import CONFIDENCE, crosses_floor
 from ingest.normalize import (RESOLUTION_DIRECT, build_event, confidence_for,
-                              from_epoch, ref_weather)
+                              from_epoch, iso, received_at_for, ref_weather)
 from ingest.parsers import read_jsonl
 
 FEED = "weather_imd"
@@ -36,7 +36,9 @@ def heat_index_c(temp_c: float, rh_pct: float) -> float:
 
 
 def extract(resolver, data_dir=None):
-    stats = {"records": 0, "candidates": 0, "dropped_unresolved": 0, "episodes": 0}
+    stats = {"records": 0, "candidates": 0, "dropped_unresolved": 0, "episodes": 0,
+             "last_raw_received_at": None}
+    last_raw = None
     out = []
     # (station, category) -> {"ref":, "start":, "peak":}
     open_ep = {}
@@ -45,6 +47,11 @@ def extract(resolver, data_dir=None):
     for _n, rec in read_jsonl(FEED, data_dir):
         stats["records"] += 1
         by_station[rec["station_id"]].append(rec)
+        # Feed liveness is about whether the SOURCE is transmitting, not whether it
+        # produced an event -- a calm station reporting "no rain" is healthy.
+        arrived = received_at_for(FEED, from_epoch(rec["ts"]))
+        if last_raw is None or arrived > last_raw:
+            last_raw = arrived
 
     for station, records in by_station.items():
         for rec in records:
@@ -91,4 +98,5 @@ def extract(resolver, data_dir=None):
                     stats["candidates"] += 1
                     del open_ep[key]
 
+    stats["last_raw_received_at"] = iso(last_raw) if last_raw else None
     return out, stats

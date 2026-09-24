@@ -15,7 +15,7 @@ civic_complaints and must never be merged with this one (§D dedupe carve-out).
 from contract_constants import CONFIDENCE, crosses_floor
 from ingest.geocode import Unresolved
 from ingest.normalize import (RESOLUTION_REGISTRY, build_event, confidence_for,
-                              from_ist_naive_iso, ref_power)
+                              from_ist_naive_iso, iso, received_at_for, ref_power)
 from ingest.parsers import read_jsonl
 
 FEED = "power_discom"
@@ -25,7 +25,8 @@ SCHEDULED_SEVERITY_CAP = 0.4     # CONTRACT.md §D.3: an announced cut is capped
 def extract(resolver, data_dir=None):
     stats = {"records": 0, "candidates": 0, "trips": 0, "restores": 0,
              "restores_unmatched": 0, "dropped_unresolved": 0, "below_floor": 0,
-             "signal_down_emitted": 0}
+             "signal_down_emitted": 0, "last_raw_received_at": None}
+    last_raw = None
     out = []
     open_outage = {}        # feeder_id -> dict describing the open TRIP
 
@@ -34,6 +35,10 @@ def extract(resolver, data_dir=None):
         feeder_id = rec["feeder_id"]
         when = from_ist_naive_iso(rec["reported_time"])
         event_kind = rec.get("event")
+        # Every record proves liveness, including RESTOREs and unresolvable feeders.
+        arrived = received_at_for(FEED, when)
+        if last_raw is None or arrived > last_raw:
+            last_raw = arrived
 
         try:
             lat, lon, cell, resolution = resolver.feeder(feeder_id)
@@ -92,4 +97,5 @@ def extract(resolver, data_dir=None):
         if emitted:
             open_outage[feeder_id] = {"ref": raw_ref, "start": when, "emitted": emitted}
 
+    stats["last_raw_received_at"] = iso(last_raw) if last_raw else None
     return out, stats

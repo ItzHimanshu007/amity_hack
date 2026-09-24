@@ -9,8 +9,8 @@ Single source of truth for how the four workstreams connect. City: **Jaipur, Raj
 
 Sections: [A. Event schema](#a-canonical-event-schema) · [B. Categories](#b-category-enum) ·
 [C. Zones](#c-zone-model) · [D. Feeds](#d-feed-list) · [E. API](#e-api-contract) ·
-[F. Situation](#f-situation-object-shape) · [G. Ground truth](#g-scenario--ground-truth-format) ·
-[H. Conventions](#h-filenaming-conventions)
+[E.1 Anomaly record](#e1-anomaly-record-shape) · [F. Situation](#f-situation-object-shape) ·
+[G. Ground truth](#g-scenario--ground-truth-format) · [H. Conventions](#h-filenaming-conventions)
 
 ---
 
@@ -105,6 +105,18 @@ a ceiling (at which severity = 1.0).
 | `traffic.signal_down` | junctions dark | 1 | 6 |
 | `transit.delay` | delay seconds | 300 | 2700 |
 | `complaint.*` | count of open complaints in the cell, 30 min window | 1 | 12 |
+
+**Note on `traffic.signal_down` from `civic_complaints`.** The floor for this category
+is 1 junction dark (see [severity scaling](#severity-scaling-fixed--do-not-invent-your-own)
+above), and a resident report can only ever describe their own junction -- the measure
+is always exactly 1. Since the ramp is
+`measure <= floor -> 0.0`, every `civic_complaints`-sourced `traffic.signal_down` event
+has `severity` exactly `0.0`, always, by construction. **This is not missing or degraded
+data.** A consumer must not exclude these events, down-weight them, or treat a flat 0.0
+as a data-quality problem -- the `power_discom`-sourced sibling of the same real-world
+junction carries the real severity signal; the complaint-sourced one carries the
+independent-corroboration signal instead (see the dedupe carve-out above). Blend on
+`source` diversity, not on severity, when this category is involved.
 
 ### confidence rules (fixed)
 
@@ -280,6 +292,11 @@ faithfully ugly and Phase 3 must absorb all of it.
 
 "Interval" is in simulated time. The `speed` control in [E](#e-api-contract) multiplies
 how fast simulated time runs; it does not change these numbers.
+
+A feed's `interval_sec` above is also the unit [E](#e-api-contract)'s `feed_health`
+staleness rule is measured in: a feed goes `stale` at `age_sec > 3 x interval_sec`. That
+threshold lives in one place, §E, so this section only points to it rather than repeating
+the number.
 
 ### deduplication rule (read this before writing any parser)
 
@@ -678,6 +695,108 @@ Bad action or value → 400 `{"error":"bad_request","detail":"speed must be one 
 
 ---
 
+## E.1 Anomaly record shape
+
+Phase 4's output: one record per (h3_cell, category, 60-minute window) that the Poisson
+tail test flags as statistically unusual. This is the evidence Phase 5 links into
+[situations](#f-situation-object-shape) -- a situation's `member_event_ids` are drawn
+from anomalies' `contributing_event_ids`, not picked directly from raw canonical events.
+
+Written to `/data/anomalies.jsonl` ([H](#h-filenaming-conventions)). Detection code never
+reads the answer key; only its own verification script may.
+
+```json
+{
+  "anomaly_id": "ANOM-7f3a91c2",
+  "h3_cell": "883da218c3fffff",
+  "category": "complaint.waterlogging",
+  "window_start_utc": "2026-09-24T13:00:00Z",
+  "window_end_utc": "2026-09-24T14:00:00Z",
+  "observed_count": 5,
+  "expected_count": 0.42,
+  "p_value": 0.00071,
+  "severity_weighted": 1.83,
+  "contributing_event_ids": [
+    "9f1c4b2e-5a7d-4e18-9c30-16b8ad4e2f77",
+    "1b0e33a4-0c2f-4a51-9ad6-6f2b7c1d9e10"
+  ],
+  "source_feeds": ["civic_complaints"],
+  "degraded_by_stale_feeds": []
+}
+```
+
+### field rules
+
+| Field | Rule |
+|---|---|
+| `anomaly_id` | `"ANOM-"` + 8 lowercase hex chars, **derived**, not random: `sha1(f"{h3_cell}\|{category}\|{window_start_utc}")[:8]`. Same window, same id, on every run -- required for byte-identical regeneration. |
+| `h3_cell` | The res-8 cell this window covers. One anomaly never spans multiple cells. |
+| `category` | One of the 11 ids in [B](#b-category-enum). One anomaly never spans multiple categories -- this is what keeps `severity_weighted` and the Poisson test meaningful. |
+| `window_start_utc` / `window_end_utc` | UTC ISO8601, `Z`. A rolling 60-minute window; `window_end_utc - window_start_utc` is always 3600s. |
+| `observed_count` | Count of canonical events of this `category` starting inside the window, in this cell. |
+| `expected_count` | The learned rate `λ` for this `(h3_cell, category, hour-of-day)` from the 14-day history, scaled to the window length. Never zero -- see the fallback rule below. |
+| `p_value` | `scipy.stats.poisson.sf(observed_count - 1, expected_count)`: P(count ≥ observed \| λ = expected). Smaller is more unusual. |
+| `severity_weighted` | Sum of `severity` over every contributing event, not just the count -- five low-severity reports and one severe one are not interchangeable, and this field is what lets Phase 5 and the scorecard tell them apart. |
+| `contributing_event_ids` | Every canonical `event_id` inside the window that this anomaly is counting. Non-empty whenever `observed_count > 0`. |
+| `source_feeds` | Distinct `source` values among the contributing events, sorted. For `traffic.signal_down`, seeing **both** `power_discom` and `civic_complaints` here is the corroboration signal Phase 5 raises `confidence_level` on -- see the [dedupe carve-out](#deduplication-rule-read-this-before-writing-any-parser). |
+| `degraded_by_stale_feeds` | Feed ids (from [D](#d-feed-list)) that emit this `category` and were reported `stale` by [feed health](#e-api-contract) for any part of the window. Empty list when nothing was degraded. A non-empty list means `observed_count` may be an undercount -- Phase 5 and any UI must show this rather than treat the anomaly as fully trustworthy. |
+
+### baseline learning and the Poisson test (fixed)
+
+- λ is learned per `(h3_cell, category, hour-of-day IST)` from the **14-day history
+  portion only** (never the detection window, or a real anomaly shrinks its own baseline).
+- λ uses **Gamma-Poisson shrinkage**, not a hard fallback ladder:
+  `λ = (count_in_bucket + α × λ_prior) / (n_days + α)`, with `λ_prior` the city-wide
+  rate for that `(category, hour)` and `α = PRIOR_STRENGTH_DAYS`. A cell with real
+  history is judged mostly on its own rate; a cell with none falls back smoothly to the
+  city-wide prior rather than to near-zero. Never divide by zero, never skip a bucket.
+
+### the two triggers (fixed)
+
+A cascade is **one** rain onset, **one** power outage and **two** dark junctions. None of
+those can ever reach a count of three, so a volume-only rule makes the entire headline
+scenario undetectable by construction -- measured: 27% recall, with the causal backbone
+of every planted cascade missing. Hence two rules:
+
+| Trigger | Rule | Catches |
+|---|---|---|
+| `volume` | `observed_count >= ANOMALY_MIN_COUNT` **and** `p_value < ANOMALY_P_THRESHOLD` | a cluster of one category in one cell |
+| `rare` | `observed_count >= 1` **and** `p_value < ANOMALY_RARE_P_THRESHOLD` **and** `severity_weighted >= ANOMALY_RARE_MIN_SEVERITY` **and** `category in ANOMALY_RARE_ELIGIBLE_CATEGORIES` | a single consequential event where that category essentially never happens |
+
+All constants live in `backend/contract_constants.py`. Never re-type them at a call site.
+
+Three things the `rare` rule deliberately requires beyond a small p-value, each of which
+was measured rather than assumed:
+
+- **A severity floor.** Statistical oddity alone is not enough; the event must also
+  matter. Planted cascade events carry median `severity_weighted` 0.50 while rare-trigger
+  false positives sit at 0.06, so severity separates the two populations far better than
+  the p-value does. Adding this gate cut the false-alarm rate from z = +8.1 to z = +1.3
+  while costing only 9 points of raw recall.
+- **Category eligibility.** `weather.heat` and `air.pm25` are sustained sensor
+  conditions -- a hot afternoon is hot for hours -- so their counts are strongly
+  correlated and badly over-dispersed relative to Poisson. A single crossing there is
+  not surprising, and flagging one produced most of the false positives. They remain
+  eligible for the `volume` trigger, which is what a genuine heat or pollution cluster
+  looks like.
+- **An empirically calibrated threshold.** Civic data violates Poisson independence, so
+  the *nominal* p-value is not the achieved false-alarm rate -- measured directly, a
+  nominal `p < 0.01` rule ran roughly 3x hot. `ANOMALY_RARE_P_THRESHOLD` is therefore a
+  starting point, and `engine/calibrate.py` re-fits it on a held-out ordinary day so the
+  measured rate meets the target. The fitted value, not the nominal one, is what runs.
+  Fitting and verification use different days, so the reported rate is not flattered.
+
+### known limitation
+
+A count-based Poisson test detects *unusual frequency*, not *unusual magnitude*. One
+exceptionally severe reading of an otherwise common category is invisible to it --
+concretely, GT-003's `air.pm25` event is a moderate elevation of a category that fires
+often, so it is not flagged and Phase 5 cannot draw that step. Closing this needs a
+magnitude-aware test (is this reading's *value* unusual for this cell), which is a
+different detector from the one specified here.
+
+---
+
 ## F. Situation object shape
 
 A situation is the whole product: a few plain-language things a resident can understand
@@ -935,6 +1054,7 @@ ever hand-edited; regenerate instead.
 | `/data/ground_truth.json` | JSON object | Phase 2 |
 | `/data/event_index.jsonl` | JSON Lines | Phase 1 |
 | `/data/events.jsonl` | JSON Lines, canonical events | Phase 3 |
+| `/data/anomalies.jsonl` | JSON Lines, [anomaly records](#e1-anomaly-record-shape) | Phase 4 |
 | `/data/situations.jsonl` | JSON Lines, situation objects | Phase 5 |
 | `/data/nagarnaadi.db` | SQLite | Phase 6 |
 

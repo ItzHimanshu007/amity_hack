@@ -13,7 +13,7 @@ events -- one per delayed stop above the floor.
 from contract_constants import CONFIDENCE, crosses_floor
 from ingest.geocode import Unresolved
 from ingest.normalize import (RESOLUTION_REGISTRY, build_event, confidence_for,
-                              from_epoch, ref_transit)
+                              from_epoch, iso, ref_transit)
 from ingest.parsers import read_jsonl
 
 FEED = "transit_gtfs"
@@ -22,12 +22,17 @@ CATEGORY = "transit.delay"
 
 def extract(resolver, data_dir=None):
     stats = {"records": 0, "stop_updates": 0, "candidates": 0, "early_ignored": 0,
-             "below_floor": 0, "dropped_unresolved": 0}
+             "below_floor": 0, "dropped_unresolved": 0, "last_raw_received_at": None}
+    last_raw = None
     out = []
 
     for _n, msg in read_jsonl(FEED, data_dir):
         stats["records"] += 1
+        # header.timestamp IS the publish time, so it is the arrival marker directly --
+        # every message proves liveness, even one with no delayed stop in it.
         published = from_epoch(msg["header"]["timestamp"])
+        if last_raw is None or published > last_raw:
+            last_raw = published
 
         for ent in msg.get("entity", []):
             tu = ent.get("trip_update") or {}
@@ -69,4 +74,5 @@ def extract(resolver, data_dir=None):
                     resolution=resolution))
                 stats["candidates"] += 1
 
+    stats["last_raw_received_at"] = iso(last_raw) if last_raw else None
     return out, stats

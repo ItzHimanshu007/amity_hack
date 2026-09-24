@@ -5,9 +5,9 @@ Produces the rows Phase 6 serves in /state. No UI, no transport -- just the stru
 Field names follow §E exactly (`state`, `last_record_utc`, `age_sec`, `interval_sec`)
 rather than inventing parallel ones, because Phase 6 serves these verbatim.
 
-NOTE ON THE STALENESS MULTIPLIER: §E defines live as `age_sec <= 3 x interval_sec`. The
-Phase 3 brief asked for 2x. The contract wins here -- ingest and the API cannot disagree
-about what "stale" means -- but it is one constant, flagged to the team.
+Staleness multiplier is 3x the feed's interval, per CONTRACT.md §E (and now
+cross-referenced from §D). Ingest and the API read the same constant so they cannot
+disagree about what "stale" means.
 """
 
 from contract_constants import FEEDS
@@ -78,8 +78,35 @@ class FeedHealth:
         return out
 
 
+def from_raw_arrivals(last_raw_at: dict, now_iso: str, drops: dict = None,
+                      totals: dict = None) -> list:
+    """Build the §E rows from each feed's LAST RAW RECORD arrival.
+
+    This is the correct input for feed health. Canonical events are the wrong signal:
+    a feed only produces an event when a reading crosses a severity floor, so a weather
+    station faithfully reporting "no rain" every 5 minutes emits nothing for hours and
+    would look dead. Health is about whether the SOURCE is transmitting, not whether it
+    currently has news. Adapters therefore report `last_raw_received_at` over every raw
+    record they read, including ones they drop.
+    """
+    h = FeedHealth()
+    for feed, iso_ts in (last_raw_at or {}).items():
+        if iso_ts:
+            h.observe(feed, iso_ts)
+    for feed, n in (totals or {}).items():
+        h.totals[feed] = n
+    for feed, n in (drops or {}).items():
+        h.dropped[feed] = n
+    return h.rows(now_iso)
+
+
 def from_events(events, now_iso: str, drops: dict = None, totals: dict = None) -> list:
-    """Convenience: build the §E rows straight from a batch of canonical events."""
+    """DEPRECATED -- kept only so nothing breaks mid-refactor. Use from_raw_arrivals.
+
+    Derives last-seen from canonical events, which systematically reports healthy but
+    quiet feeds as `stale` (see from_raw_arrivals). Do not use for anything Phase 6
+    serves.
+    """
     h = FeedHealth()
     for ev in events:
         h.observe(ev["source"], ev["received_at"])
