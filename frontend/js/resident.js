@@ -14,6 +14,7 @@
 import {
   fetchState, fetchSituation, connectStream, onSituationSelected,
   CATEGORY_LABELS, ALERT_WORDS, toISTClock, formatDuration, timeAgo,
+  ACTION_BY_CATEGORY,
 } from "./api.js";
 import { renderStatusBlock } from "./statusblock.js";
 
@@ -41,6 +42,14 @@ const STRINGS = {
     unrelatedHeading: "Probably unrelated",
     unrelatedIntro: "These showed up together but we don't think they're connected.",
     situationUpdated: (t) => `Updated ${t}`,
+    alertLabel: "Alert me about",
+    alertOff: "No alerts",
+    alertWatching: (a) => `Watching ${a}. You'll get an alert here when something starts or gets worse.`,
+    alertAlready: (n, a) => `${n} thing${n === 1 ? "" : "s"} already happening near ${a}.`,
+    alertEnableBrowser: "Also show browser notifications",
+    alertNew: (a) => `New near ${a}`,
+    alertWorse: (a) => `Getting worse near ${a}`,
+    alertDismiss: "Dismiss",
   },
   hi: {
     simulated: "नमूना डेटा",
@@ -60,27 +69,36 @@ const STRINGS = {
     unrelatedHeading: "शायद असंबंधित",
     unrelatedIntro: "ये एक साथ दिखे लेकिन हमें नहीं लगता ये जुड़े हैं।",
     situationUpdated: (t) => `${t} अपडेट किया गया`,
+    alertLabel: "मुझे इसकी सूचना दें",
+    alertOff: "कोई सूचना नहीं",
+    alertWatching: (a) => `${a} पर नज़र है। कुछ शुरू होने या बिगड़ने पर यहाँ सूचना मिलेगी।`,
+    alertAlready: (n, a) => `${a} के पास अभी ${n} घटनाएँ चल रही हैं।`,
+    alertEnableBrowser: "ब्राउज़र सूचनाएँ भी दिखाएँ",
+    alertNew: (a) => `${a} के पास नई घटना`,
+    alertWorse: (a) => `${a} के पास स्थिति बिगड़ रही है`,
+    alertDismiss: "हटाएँ",
   },
 };
 
-// Client-side heuristic: CONTRACT.md's situation shape has no
-// `suggested_action` field, so this maps the root-cause category (chain[0])
-// to a plain action sentence. If the backend ships a real
-// suggested_action_en/_hi field, prefer it verbatim over this — same pattern
-// as framing_text below. Flag for reconciliation.
-const ACTION_BY_CATEGORY = {
-  "weather.rain":           { en: "Avoid low-lying roads nearby — they may be flooded.", hi: "पास की नीची सड़कों से बचें — वहाँ पानी भर सकता है।" },
-  "complaint.waterlogging": { en: "Avoid this area if you can — roads may be flooded.", hi: "हो सके तो इस क्षेत्र से बचें — सड़कों पर पानी हो सकता है।" },
-  "power.outage":           { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
-  "traffic.signal_down":    { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
-  "transit.delay":          { en: "Expect bus delays on nearby routes.", hi: "पास के रूटों पर बसें देरी से चल सकती हैं।" },
-  "complaint.smoke":        { en: "Keep windows closed if you're nearby.", hi: "पास हैं तो खिड़कियाँ बंद रखें।" },
-  "air.pm25":               { en: "Limit outdoor activity if you're sensitive to air quality.", hi: "हवा को लेकर संवेदनशील हैं तो बाहर कम रहें।" },
-  "weather.heat":           { en: "Stay hydrated and avoid the sun if you're nearby.", hi: "पानी पीते रहें और धूप से बचें।" },
-  "complaint.garbage":      { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
-  "complaint.streetlight":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
-  "complaint.road_damage":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
-};
+// ----------------------------------------------------------- area alerts ---
+// The nine fixed landmark areas (CONTRACT.md §C). A situation belongs to an
+// area when its zone label names that landmark — labels are derived from the
+// nearest landmark, so this needs no h3 library on this page.
+const ALERT_AREAS = [
+  { en: "Hawa Mahal", hi: "हवा महल" }, { en: "Amer Fort", hi: "आमेर किला" },
+  { en: "Jal Mahal", hi: "जल महल" }, { en: "Albert Hall Museum", hi: "अल्बर्ट हॉल" },
+  { en: "Jaipur Junction", hi: "जयपुर जंक्शन" }, { en: "Sindhi Camp", hi: "सिंधी कैंप" },
+  { en: "Vaishali Nagar", hi: "वैशाली नगर" }, { en: "Malviya Nagar", hi: "मालवीय नगर" },
+  { en: "Mansarovar", hi: "मानसरोवर" },
+];
+const LEVEL_ORDER = ["green", "yellow", "orange", "red"];
+const ALERT_STORAGE_KEY = "nagarnaadi.alertArea";
+let alertArea = null; // ALERT_AREAS entry or null
+const recentAlerts = []; // { situation, kind }
+try {
+  const saved = localStorage.getItem(ALERT_STORAGE_KEY);
+  alertArea = ALERT_AREAS.find((a) => a.en === saved) || null;
+} catch { /* storage unavailable */ }
 
 // ------------------------------------------------------------------ state --
 
@@ -117,6 +135,7 @@ function init() {
   els.summary = document.getElementById("situation-summary");
   els.list = document.getElementById("situation-list");
   els.unrelated = document.getElementById("unrelated-section");
+  els.alerts = document.getElementById("area-alerts");
 
   buildLangToggle();
   // No manual retick needed here — statusblock.js's renderStatusBlock()
@@ -138,8 +157,10 @@ function init() {
         { situations_active: tickData.situations_active, cells_touched: undefined });
     },
     null, // resident view does not need the raw event stream directly
-    (situationData) => {
+    (situationData, action) => {
+      const prev = situationsById.get(situationData.situation_id);
       situationsById.set(situationData.situation_id, situationData);
+      maybeAlert(situationData, action, prev && prev.alert_level);
       renderAreaPicker();
       renderSituationList();
       renderSummary();
@@ -162,6 +183,7 @@ function renderConnectingState(err) {
 function renderAll(city, counts) {
   renderSimBanner();
   updateStatusBlock(city, counts);
+  renderAlerts();
   renderAreaPicker();
   renderSituationList();
   renderSummary();
@@ -169,6 +191,7 @@ function renderAll(city, counts) {
 }
 
 function render() {
+  renderAlerts();
   renderAreaPicker();
   renderSituationList();
   renderSummary();
@@ -229,6 +252,102 @@ function updateStatusBlock(city, counts) {
   if (!els.statusBlock) return;
   const level = (city && city.alert_level) || "green";
   renderStatusBlock(els.statusBlock, level, statusSummary(counts));
+}
+
+// ----------------------------------------------------------- area alerts ---
+
+function areaName(area) { return lang === "hi" ? area.hi : area.en; }
+
+function situationInArea(sit, area) {
+  return !sit.is_decoy && sit.status !== "closed" && (sit.zone?.label_en || "").includes(area.en);
+}
+
+function maybeAlert(sit, action, prevLevel) {
+  if (!alertArea || !situationInArea(sit, alertArea)) return;
+  let kind = null;
+  if (action === "created") kind = "new";
+  else if (prevLevel && LEVEL_ORDER.indexOf(sit.alert_level) > LEVEL_ORDER.indexOf(prevLevel)) kind = "worse";
+  if (!kind) return;
+  recentAlerts.unshift({ situation: sit, kind });
+  recentAlerts.length = Math.min(recentAlerts.length, 3);
+  renderAlerts();
+  try {
+    if ("Notification" in window && Notification.permission === "granted") {
+      new Notification(kind === "new" ? STRINGS.en.alertNew(alertArea.en) : STRINGS.en.alertWorse(alertArea.en), {
+        body: sit.headline_en, tag: sit.situation_id,
+      });
+    }
+  } catch { /* notifications unavailable */ }
+}
+
+function renderAlerts() {
+  if (!els.alerts) return;
+  els.alerts.innerHTML = "";
+
+  const label = document.createElement("label");
+  label.className = "area-picker__label";
+  label.htmlFor = "area-alert-select";
+  label.textContent = t("alertLabel");
+  const select = document.createElement("select");
+  select.id = "area-alert-select";
+  select.className = "area-picker__select";
+  const off = document.createElement("option");
+  off.value = "";
+  off.textContent = t("alertOff");
+  select.appendChild(off);
+  for (const a of ALERT_AREAS) {
+    const opt = document.createElement("option");
+    opt.value = a.en;
+    opt.textContent = areaName(a);
+    select.appendChild(opt);
+  }
+  select.value = alertArea ? alertArea.en : "";
+  select.addEventListener("change", () => {
+    alertArea = ALERT_AREAS.find((a) => a.en === select.value) || null;
+    recentAlerts.length = 0;
+    try {
+      if (alertArea) localStorage.setItem(ALERT_STORAGE_KEY, alertArea.en);
+      else localStorage.removeItem(ALERT_STORAGE_KEY);
+    } catch { /* storage unavailable */ }
+    renderAlerts();
+  });
+  els.alerts.append(label, select);
+
+  if (!alertArea) return;
+  const status = document.createElement("p");
+  status.className = "area-alerts__status";
+  const already = [...situationsById.values()].filter((s) => situationInArea(s, alertArea)).length;
+  status.textContent = already ? t("alertAlready", already, areaName(alertArea)) : t("alertWatching", areaName(alertArea));
+  els.alerts.appendChild(status);
+
+  if ("Notification" in window && Notification.permission === "default") {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "text-button";
+    btn.textContent = t("alertEnableBrowser");
+    btn.addEventListener("click", () => Notification.requestPermission().then(renderAlerts));
+    els.alerts.appendChild(btn);
+  }
+
+  for (const [i, { situation, kind }] of recentAlerts.entries()) {
+    const card = document.createElement("div");
+    card.className = `area-alert area-alert--${situation.alert_level}`;
+    card.setAttribute("role", "alert");
+    const title = document.createElement("p");
+    title.className = "area-alert__title";
+    title.textContent = kind === "new" ? t("alertNew", areaName(alertArea)) : t("alertWorse", areaName(alertArea));
+    const body = document.createElement("p");
+    body.className = "area-alert__body";
+    body.textContent = lang === "hi" ? situation.headline_hi : situation.headline_en;
+    body.lang = lang === "hi" ? "hi" : null;
+    const dismiss = document.createElement("button");
+    dismiss.type = "button";
+    dismiss.className = "text-button area-alert__dismiss";
+    dismiss.textContent = t("alertDismiss");
+    dismiss.addEventListener("click", () => { recentAlerts.splice(i, 1); renderAlerts(); });
+    card.append(title, body, dismiss);
+    els.alerts.appendChild(card);
+  }
 }
 
 // ---------------------------------------------------------- area picker ---

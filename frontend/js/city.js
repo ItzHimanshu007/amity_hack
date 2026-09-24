@@ -121,17 +121,83 @@ function buildHatchImage(strokeColor) {
 }
 
 // ------------------------------------------------------------ map style ---
-function buildStyle(palette) {
+// Basemap (water, roads, road names) from OpenFreeMap. The only part of the
+// map that needs the internet, so it is added after "load" and underneath the
+// H3/situation layers: if the tile host is unreachable, only this goes missing.
+function buildBasemapLayers(palette) {
   const roadColor = palette.dhool;
   const majorRoadClasses = ["motorway", "trunk", "primary", "secondary", "tertiary"];
+  return [
+    {
+      id: "water",
+      type: "fill",
+      source: "ofm",
+      "source-layer": "water",
+      paint: { "fill-color": palette.rekha, "fill-opacity": 0.9 },
+    },
+    {
+      id: "waterway",
+      type: "line",
+      source: "ofm",
+      "source-layer": "waterway",
+      paint: { "line-color": palette.rekha, "line-width": 1 },
+    },
+    {
+      id: "roads",
+      type: "line",
+      source: "ofm",
+      "source-layer": "transportation",
+      filter: ["all",
+        ["in", ["get", "class"], ["literal", [...majorRoadClasses, "minor", "service"]]],
+        ["!=", ["get", "brunnel"], "tunnel"],
+      ],
+      layout: { "line-cap": "round", "line-join": "round" },
+      paint: {
+        "line-color": roadColor,
+        "line-opacity": 0.7,
+        "line-width": ["interpolate", ["linear"], ["zoom"],
+          10, ["match", ["get", "class"], ["motorway", "trunk"], 1.4, ["primary", "secondary"], 0.9, 0.5],
+          16, ["match", ["get", "class"], ["motorway", "trunk"], 4, ["primary", "secondary"], 2.6, 1.2],
+        ],
+      },
+    },
+    {
+      id: "road-labels",
+      type: "symbol",
+      source: "ofm",
+      "source-layer": "transportation_name",
+      minzoom: 12,
+      filter: ["in", ["get", "class"], ["literal", majorRoadClasses]],
+      layout: {
+        "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 11,
+        "symbol-placement": "line",
+        "text-letter-spacing": 0.01,
+      },
+      paint: {
+        "text-color": palette.syahi,
+        "text-halo-color": palette.chuna,
+        "text-halo-width": 1.4,
+      },
+    },
+  ];
+}
+
+function addBasemap() {
+  try {
+    map.addSource("ofm", { type: "vector", url: "https://tiles.openfreemap.org/planet" });
+    for (const layer of buildBasemapLayers(palette)) map.addLayer(layer, "h3-grid-line");
+  } catch (err) {
+    console.warn("[city] basemap unavailable, continuing without it", err);
+  }
+}
+
+function buildStyle(palette) {
   return {
     version: 8,
     glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
     sources: {
-      ofm: {
-        type: "vector",
-        url: "https://tiles.openfreemap.org/planet",
-      },
       // Empty GeoJSON sources declared up front (not added later via
       // addSource) so the layers below — which reference them by id — are
       // valid the moment the style loads. They're populated with .setData()
@@ -143,59 +209,6 @@ function buildStyle(palette) {
     },
     layers: [
       { id: "bg", type: "background", paint: { "background-color": palette.chuna } },
-      {
-        id: "water",
-        type: "fill",
-        source: "ofm",
-        "source-layer": "water",
-        paint: { "fill-color": palette.rekha, "fill-opacity": 0.9 },
-      },
-      {
-        id: "waterway",
-        type: "line",
-        source: "ofm",
-        "source-layer": "waterway",
-        paint: { "line-color": palette.rekha, "line-width": 1 },
-      },
-      {
-        id: "roads",
-        type: "line",
-        source: "ofm",
-        "source-layer": "transportation",
-        filter: ["all",
-          ["in", ["get", "class"], ["literal", [...majorRoadClasses, "minor", "service"]]],
-          ["!=", ["get", "brunnel"], "tunnel"],
-        ],
-        layout: { "line-cap": "round", "line-join": "round" },
-        paint: {
-          "line-color": roadColor,
-          "line-opacity": 0.7,
-          "line-width": ["interpolate", ["linear"], ["zoom"],
-            10, ["match", ["get", "class"], ["motorway", "trunk"], 1.4, ["primary", "secondary"], 0.9, 0.5],
-            16, ["match", ["get", "class"], ["motorway", "trunk"], 4, ["primary", "secondary"], 2.6, 1.2],
-          ],
-        },
-      },
-      {
-        id: "road-labels",
-        type: "symbol",
-        source: "ofm",
-        "source-layer": "transportation_name",
-        minzoom: 12,
-        filter: ["in", ["get", "class"], ["literal", majorRoadClasses]],
-        layout: {
-          "text-field": ["coalesce", ["get", "name:en"], ["get", "name"]],
-          "text-font": ["Noto Sans Regular"],
-          "text-size": 11,
-          "symbol-placement": "line",
-          "text-letter-spacing": 0.01,
-        },
-        paint: {
-          "text-color": palette.syahi,
-          "text-halo-color": palette.chuna,
-          "text-halo-width": 1.4,
-        },
-      },
       // --- H3 layer: grid outline (all ~591 cells), quiet & always on ---
       {
         id: "h3-grid-line",
@@ -719,7 +732,11 @@ async function init() {
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
 
+  // A missing basemap tile/glyph must not surface as an uncaught error.
+  map.on("error", (e) => console.warn("[city] map resource error", e && e.error ? e.error.message : e));
+
   map.on("load", async () => {
+    addBasemap();
     const cells = allBboxCells();
     cellFeaturesById = new Map(cells.map((cell) => [cell, {
       type: "Feature",

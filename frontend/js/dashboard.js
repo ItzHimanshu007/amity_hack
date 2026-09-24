@@ -17,8 +17,8 @@
  */
 
 import {
-  fetchState, connectStream, selectSituation,
-  CATEGORY_LABELS, FEED_IDS, FEED_LABELS, toISTClock, formatDuration,
+  fetchState, fetchScorecard, connectStream, selectSituation,
+  CATEGORY_LABELS, FEED_IDS, FEED_LABELS, ACTION_BY_CATEGORY, toISTClock, formatDuration,
 } from "./api.js";
 
 // CONTRACT.md §B "Emitted by" column, mirrored (closed enum — see api.js's
@@ -190,6 +190,50 @@ function renderFeedHealthCompact() {
   }
 }
 
+// ============================================================= proof strip ==
+// GET /scorecard grades the linker's output for the whole replay against the
+// hidden ground-truth file. The lag figure is left out on purpose: the
+// backend marks it as a proxy (detection_lag_caveat), not true detection time.
+
+function renderProofStrip(card) {
+  const el = document.getElementById("proof-strip");
+  if (!el || !card) return;
+  el.innerHTML = "";
+  el.className = "proof-strip";
+  const heading = document.createElement("p");
+  heading.className = "proof-strip__heading label";
+  heading.textContent = "How we know it works";
+  el.appendChild(heading);
+
+  const rows = [
+    [`${card.matched}/${card.truth_situations}`, "planted situations found"],
+    [String(card.false_positives), card.false_positives === 1 ? "false link" : "false links"],
+    [`${card.decoys_correctly_ignored}/${card.decoys_planted}`, "decoys correctly ignored"],
+  ];
+  for (const [num, text] of rows) {
+    const row = document.createElement("div");
+    row.className = "proof-strip__row";
+    const n = document.createElement("span");
+    n.className = "proof-strip__num data";
+    n.textContent = num;
+    const t = document.createElement("span");
+    t.className = "proof-strip__text";
+    t.textContent = text;
+    row.append(n, t);
+    el.appendChild(row);
+  }
+  const note = document.createElement("p");
+  note.className = "proof-strip__note";
+  note.textContent = "Scored over the full 3-hour replay against a hidden answer key the detector never reads.";
+  el.appendChild(note);
+  const link = document.createElement("button");
+  link.type = "button";
+  link.className = "text-button";
+  link.textContent = "See the full scorecard";
+  link.addEventListener("click", () => switchView("dataroom"));
+  el.appendChild(link);
+}
+
 // ========================================================= hero situation ==
 
 const situationsById = new Map();
@@ -284,10 +328,52 @@ function renderHero() {
   confRow.appendChild(confWordEl);
   el.appendChild(confRow);
 
-  const quote = document.createElement("p");
-  quote.className = "situation-hero__quote";
-  quote.textContent = `"${situation.headline_en}"`;
-  el.appendChild(quote);
+  if (situation.confidence_reason_en) {
+    let reason = situation.confidence_reason_en;
+    for (const [id, lbl] of Object.entries(FEED_LABELS)) reason = reason.split(id).join(lbl.en.toLowerCase());
+    const reasonEl = document.createElement("p");
+    reasonEl.className = "situation-hero__confidence-reason";
+    reasonEl.textContent = reason.charAt(0).toUpperCase() + reason.slice(1);
+    el.appendChild(reasonEl);
+  }
+
+  // The linker's own "partial" signal: it has matched only some of the reports
+  // it expects to belong here. Watching this count rise is the replay's growth.
+  if (situation.partial && situation.partial_of != null) {
+    const known = situation.members_known ?? (situation.member_event_ids || []).length;
+    const growing = document.createElement("span");
+    growing.className = "situation-hero__growing";
+    growing.textContent = `Still growing · ${known} of ~${situation.partial_of} reports so far`;
+    el.appendChild(growing);
+  }
+
+
+  // ---- why it matters: the resident view's suggested action per chain category ----
+  // One line per theme, so rain and waterlogging don't both say "flooded".
+  const THEME = { "weather.rain": "flood", "complaint.waterlogging": "flood", "power.outage": "signals", "traffic.signal_down": "signals" };
+  const matters = [];
+  const seen = new Set();
+  for (const step of situation.chain || []) {
+    const a = ACTION_BY_CATEGORY[step.category];
+    const theme = THEME[step.category] || step.category;
+    if (!a || a.en.startsWith("Being tracked") || seen.has(theme)) continue;
+    seen.add(theme);
+    matters.push(a.en);
+  }
+  if (matters.length) {
+    const mattersHeading = document.createElement("p");
+    mattersHeading.className = "situation-hero__section-heading label";
+    mattersHeading.textContent = "Why it matters";
+    el.appendChild(mattersHeading);
+    const mattersList = document.createElement("ul");
+    mattersList.className = "situation-hero__matters";
+    for (const text of matters.slice(0, 3)) {
+      const li = document.createElement("li");
+      li.textContent = text;
+      mattersList.appendChild(li);
+    }
+    el.appendChild(mattersList);
+  }
 
   // ---- connected chain ----
   const chain = situation.chain || [];
@@ -490,6 +576,7 @@ async function init() {
     renderCityHealth({ pulse_score: 0, alert_level: "green" });
   }
 
+  fetchScorecard().then(renderProofStrip).catch(() => { /* strip stays hidden */ });
   connectStream(onTick, null, onSituation, onFeedHealth);
 }
 

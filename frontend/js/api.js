@@ -234,6 +234,26 @@ export const BOOKMARKS = [
   { id: "window_end",           label_en: "Jump to 8:30pm — simulation end" },
 ];
 
+// Suggested action per category, shared by the resident view and the city
+// hero. Client-side heuristic: CONTRACT.md's situation shape has no
+// `suggested_action` field, so this maps the root-cause category (chain[0])
+// to a plain action sentence. If the backend ships a real
+// suggested_action_en/_hi field, prefer it verbatim over this — same pattern
+// as framing_text below. Flag for reconciliation.
+export const ACTION_BY_CATEGORY = {
+  "weather.rain":           { en: "Avoid low-lying roads nearby — they may be flooded.", hi: "पास की नीची सड़कों से बचें — वहाँ पानी भर सकता है।" },
+  "complaint.waterlogging": { en: "Avoid this area if you can — roads may be flooded.", hi: "हो सके तो इस क्षेत्र से बचें — सड़कों पर पानी हो सकता है।" },
+  "power.outage":           { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
+  "traffic.signal_down":    { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
+  "transit.delay":          { en: "Expect bus delays on nearby routes.", hi: "पास के रूटों पर बसें देरी से चल सकती हैं।" },
+  "complaint.smoke":        { en: "Keep windows closed if you're nearby.", hi: "पास हैं तो खिड़कियाँ बंद रखें।" },
+  "air.pm25":               { en: "Limit outdoor activity if you're sensitive to air quality.", hi: "हवा को लेकर संवेदनशील हैं तो बाहर कम रहें।" },
+  "weather.heat":           { en: "Stay hydrated and avoid the sun if you're nearby.", hi: "पानी पीते रहें और धूप से बचें।" },
+  "complaint.garbage":      { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
+  "complaint.streetlight":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
+  "complaint.road_damage":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
+};
+
 /** ISO UTC string -> "6:42 pm" in IST. The one place this side does the conversion. */
 export function toISTClock(utcIso) {
   if (!utcIso) return "";

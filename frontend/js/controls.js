@@ -9,9 +9,9 @@
 
 import { fetchState, sendControl, connectStream, SPEEDS, BOOKMARKS, FEED_IDS, FEED_LABELS, toISTClock } from "./api.js";
 
-// The backend's set_scenario currently accepts only "monsoon_evening"
-// (backend/api/control.py); the other three ids return a 400 that is shown
-// inline in the Scenarios section. Ids unchanged from the previous build.
+// backend/api/control.py's set_scenario accepts only "monsoon_evening" today;
+// the other ids are kept for when the backend grows them, but hidden until then.
+const AVAILABLE_SCENARIOS = new Set(["monsoon_evening"]);
 const SCENARIOS = [
   { id: "monsoon_evening", en: "Storm (monsoon evening)", short: "Storm", sub: "Monsoon evening" },
   { id: "transformer_failure", en: "Transformer failure", short: "Transformer failure", sub: null },
@@ -297,14 +297,14 @@ function refreshFeedButtons() {
 function buildScenarioSection() {
   const sec = section("Scenarios", "Load a predefined synthetic event pattern.");
   const grid = div("cc-scenarios");
-  for (const sc of SCENARIOS) {
+  for (const sc of SCENARIOS.filter((x) => AVAILABLE_SCENARIOS.has(x.id))) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "cc-scenario";
     btn.setAttribute("aria-label", `Load ${sc.en.toLowerCase()} scenario`);
     btn.title = `Load ${sc.en.toLowerCase()} scenario`;
-    btn.appendChild(span("cc-scenario__name", sc.short));
-    if (sc.sub) btn.appendChild(span("cc-scenario__sub", sc.sub));
+    btn.appendChild(span("cc-scenario__name", `Load ${sc.short.toLowerCase()} scenario`));
+    btn.appendChild(span("cc-scenario__sub", `${sc.sub || sc.en} · resets the replay to 5:30 PM`));
     btn.addEventListener("click", async () => {
       const res = await runControl("set_scenario", sc.id, els.scenarioMsg,
         () => `Scenario set to ${sc.en.toLowerCase()}.`);

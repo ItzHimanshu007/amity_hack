@@ -5,9 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NagarNaadi — city dashboard</title>
 
-<!-- MapLibre GL JS. Vendor these into /js/vendor/ if the venue wifi is unreliable;
-     the fonts are already local for exactly that reason. -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+<!-- MapLibre GL JS 4.7.1 + h3-js 4.1.0, vendored so the map works on bad venue wifi.
+     Only the basemap tiles come from the network; see js/city.js. -->
+<link rel="stylesheet" href="js/vendor/maplibre-gl.css">
 
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/app.css">
@@ -49,6 +49,7 @@
       <aside class="dashboard__left">
         <div id="city-health"></div>
         <div id="feed-health-compact"></div>
+        <div id="proof-strip"></div>
       </aside>
 
       <!-- CENTER: the existing Jaipur MapLibre/H3 map, untouched logic. -->
@@ -122,8 +123,8 @@
   </div>
 </details>
 
-<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script src="js/vendor/maplibre-gl.js"></script>
+<script src="js/vendor/h3-js.umd.js"></script>
 <!-- city.js: the map + status block (via js/statusblock.js). naadi.js: the
      ECG strip + scrubber. situations.js/controls.js/dataroom.js: the rail,
      playback/chaos controls, and data room. dashboard.js: Phase 1's layout
