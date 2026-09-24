@@ -12,45 +12,52 @@
 <link rel="stylesheet" href="css/tokens.css">
 <link rel="stylesheet" href="css/app.css">
 </head>
-<body>
+<body class="city-body">
 
-<!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
-<div id="simulated-banner"><!-- "Simulated data" marker --></div>
+<!-- The map is the dashboard: a fixed full-viewport canvas. Every panel below
+     floats over it, hugging the edges so the centre stays readable. -->
+<div id="map"></div>
 
-<!-- The one bold element. ECG-style trace of city event rate, driven by WS tick
-     messages. Hand-drawn canvas/SVG, never a chart library. DESIGN.md §5. -->
-<header id="naadi-strip"></header>
+<!-- Top band: the Naadi strip (DESIGN.md §5, full width, above everything) with
+     the transport bar naadi.js inserts directly after it. -->
+<div id="top-band">
+  <!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
+  <div id="simulated-banner"><!-- "Simulated data" marker --></div>
+  <header id="naadi-strip"></header>
+</div>
 
 <main id="city-view">
 
-  <!-- Is the city okay right now. DESIGN.md §1. -->
-  <section id="status-block"></section>
+  <div class="overlay overlay--left">
+    <!-- Is the city okay right now. DESIGN.md §1. -->
+    <section id="status-block"></section>
 
-  <!-- MapLibre map: res-8 h3 cells from cellToBoundary(cell, true) -> [lng, lat]. -->
-  <section id="map"></section>
+    <!-- One row per feed, with its exact-action control button. DESIGN.md §6. -->
+    <section id="feed-health"></section>
 
-  <!-- Situation cards, newest first. DESIGN.md §3, with the §4 timeline inline. -->
-  <aside id="situation-rail"></aside>
+    <!-- POST /control: chaos and scenario. Play/pause/speed/bookmarks live in
+         the top band's transport bar instead. -->
+    <section id="sim-controls"></section>
+  </div>
 
-  <!-- is_decoy: true situations. Always visible when non-empty. DESIGN.md §7. -->
-  <section id="unrelated-section"></section>
+  <div class="overlay overlay--right">
+    <!-- Situation cards, newest first. DESIGN.md §3, with the §4 timeline inline. -->
+    <aside id="situation-rail"></aside>
 
-  <!-- One row per feed, with its exact-action control button. DESIGN.md §6. -->
-  <section id="feed-health"></section>
-
-  <!-- Data room: last N un-normalized records from GET /raw/{feed}, shown ugly. -->
-  <section id="data-room"></section>
-
-  <!-- POST /control: play, pause, speed, kill_feed, resume_feed, set_scenario. -->
-  <section id="sim-controls"></section>
+    <!-- is_decoy: true situations. Always visible when non-empty. DESIGN.md §7. -->
+    <section id="unrelated-section"></section>
+  </div>
 
 </main>
+
+<a class="page-link" href="dataroom.html">Open the data room</a>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/h3-js@4.1.0/dist/h3-js.umd.js"></script>
 <!-- city.js: the map + status block (via js/statusblock.js). naadi.js: the
-     ECG strip + scrubber. situations.js/controls.js/dataroom.js: the rail,
-     playback/chaos controls, and data room. All import js/api.js as an ES
+     ECG strip, transport bar and bookmarks. situations.js: the rail.
+     controls.js: chaos + scenario. dataroom.js renders #feed-health here and
+     the full comparison on dataroom.html. All import js/api.js as an ES
      module; js/api.js needs no tag of its own. -->
 <script type="module" src="js/city.js"></script>
 <script type="module" src="js/naadi.js"></script>

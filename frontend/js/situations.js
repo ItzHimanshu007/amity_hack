@@ -110,13 +110,10 @@ function renderRailEmptyState(message) {
   railEl.innerHTML = "";
   const p = document.createElement("p");
   p.className = "situation-rail__empty";
-  p.textContent = message || "Nothing unusual right now.";
-  const hi = document.createElement("p");
-  hi.className = "situation-rail__empty situation-rail__empty--hi";
-  hi.lang = "hi";
-  hi.textContent = message ? "" : "अभी कुछ भी असामान्य नहीं है।";
+  // Not "Nothing unusual right now" — the status block above already says that,
+  // in both languages. This line says what this list is, instead of repeating it.
+  p.textContent = message || "No linked situations to show.";
   railEl.appendChild(p);
-  if (hi.textContent) railEl.appendChild(hi);
 }
 
 function renderRailFromScratch() {

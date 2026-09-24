@@ -24,8 +24,6 @@ import { renderStatusBlock } from "./statusblock.js";
 
 const H3_RES = 8;
 const BBOX = { swLat: 26.79, swLon: 75.69, neLat: 26.99, neLon: 75.89 };
-const MAP_CENTER = [75.7873, 26.9124]; // [lng, lat]
-const MAP_ZOOM = 11.5;
 
 const LANDMARKS = [
   { en: "Hawa Mahal", hi: "हवा महल", lat: 26.9239, lon: 75.8267, cell: "883da21891fffff" },
@@ -158,21 +156,26 @@ function buildStyle(palette) {
         paint: { "line-color": palette.rekha, "line-width": 1 },
       },
       {
+        // Major roads only — the city should read as shape, not lane-by-lane
+        // street detail. "minor"/"service" produced a dense grey mesh that
+        // competed with the hex layer, which is the actual subject of this map.
         id: "roads",
         type: "line",
         source: "ofm",
         "source-layer": "transportation",
         filter: ["all",
-          ["in", ["get", "class"], ["literal", [...majorRoadClasses, "minor", "service"]]],
+          ["in", ["get", "class"], ["literal", majorRoadClasses]],
           ["!=", ["get", "brunnel"], "tunnel"],
         ],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": roadColor,
-          "line-opacity": 0.7,
+          // Lower and flatter across zoom than before, so roads recede into
+          // the background at any zoom instead of darkening as you zoom in.
+          "line-opacity": 0.35,
           "line-width": ["interpolate", ["linear"], ["zoom"],
-            10, ["match", ["get", "class"], ["motorway", "trunk"], 1.4, ["primary", "secondary"], 0.9, 0.5],
-            16, ["match", ["get", "class"], ["motorway", "trunk"], 4, ["primary", "secondary"], 2.6, 1.2],
+            10, ["match", ["get", "class"], ["motorway", "trunk"], 1.1, ["primary", "secondary"], 0.7, 0.4],
+            16, ["match", ["get", "class"], ["motorway", "trunk"], 2.6, ["primary", "secondary"], 1.6, 0.8],
           ],
         },
       },
@@ -710,8 +713,15 @@ async function init() {
   map = new maplibregl.Map({
     container: "map",
     style: buildStyle(palette),
-    center: MAP_CENTER,
-    zoom: MAP_ZOOM,
+    // Framed to the whole H3 bbox, not a center/zoom pair: at street zoom the
+    // cells and situation overlays sit off screen on load. maxZoom caps how
+    // close that fit is allowed to land — fitting the same bbox into a full
+    // viewport (rather than the smaller contained map this used to be) zooms
+    // in *closer* on a bigger screen, not further out, since fitBounds always
+    // fills the container. Without the cap the city reads as street detail;
+    // with it, the city reads as shape and the hex layer stays legible.
+    bounds: [[BBOX.swLon, BBOX.swLat], [BBOX.neLon, BBOX.neLat]],
+    fitBoundsOptions: { padding: 48, maxZoom: 11.3 },
     attributionControl: { compact: true },
     dragRotate: false,
     pitchWithRotate: false,

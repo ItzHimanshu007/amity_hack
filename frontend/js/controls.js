@@ -5,7 +5,7 @@
  * Owns: #sim-controls on index.html.
  */
 
-import { fetchState, sendControl, connectStream, SPEEDS, BOOKMARKS, FEED_IDS, FEED_LABELS } from "./api.js";
+import { fetchState, sendControl, connectStream, FEED_IDS, FEED_LABELS } from "./api.js";
 
 // CONTRACT.md §G only defines "monsoon_evening" today (README's
 // `sim.generate --scenario calm` confirms "calm" is at least a valid data-
@@ -38,9 +38,8 @@ function init() {
   statusEl.className = "sim-controls__status";
   root.appendChild(statusEl);
 
-  root.appendChild(buildPlaybackGroup());
-  root.appendChild(buildSpeedGroup());
-  root.appendChild(buildBookmarkGroup());
+  // Play/pause, speed and bookmarks live in the Naadi strip's transport bar
+  // (js/naadi.js) — this panel is the chaos and scenario controls only.
   root.appendChild(buildFeedGroup());
   root.appendChild(buildScenarioGroup());
 
@@ -86,52 +85,6 @@ async function runControl(action, value, describe) {
     statusEl.textContent = `Could not do that: ${err.message}`;
   }
 }
-
-// ------------------------------------------------------------- playback ---
-
-function buildPlaybackGroup() {
-  const group = document.createElement("div");
-  group.className = "sim-controls__group";
-  const playBtn = actionButton("Play the simulation", () => runControl("play"));
-  const pauseBtn = actionButton("Pause the simulation", () => runControl("pause"));
-  group.appendChild(playBtn);
-  group.appendChild(pauseBtn);
-  return group;
-}
-
-// ---------------------------------------------------------------- speed ---
-
-function buildSpeedGroup() {
-  const group = document.createElement("div");
-  group.className = "sim-controls__group sim-controls__speed";
-  const label = document.createElement("span");
-  label.className = "sim-controls__group-label";
-  label.textContent = "Speed";
-  group.appendChild(label);
-  for (const speed of SPEEDS) {
-    const btn = actionButton(`Run at ${trimSpeed(speed)}× speed`, () => runControl("speed", speed));
-    group.appendChild(btn);
-  }
-  return group;
-}
-
-// ----------------------------------------------------------- bookmarks ---
-
-function buildBookmarkGroup() {
-  const group = document.createElement("div");
-  group.className = "sim-controls__group sim-controls__bookmarks";
-  const label = document.createElement("span");
-  label.className = "sim-controls__group-label";
-  label.textContent = "Jump to";
-  group.appendChild(label);
-  for (const bm of BOOKMARKS) {
-    const btn = actionButton(bm.label_en, () => runControl("jump_to", bm.id));
-    group.appendChild(btn);
-  }
-  return group;
-}
-
-// ---------------------------------------------------------------- feeds ---
 
 function buildFeedGroup() {
   const group = document.createElement("div");

@@ -1,9 +1,11 @@
-/* js/dataroom.js — feed-health rows (#feed-health), the data room's raw vs
- * cleaned side-by-side view, and the scorecard sub-view (#data-room).
+/* js/dataroom.js — feed-health rows and the data room.
  * DESIGN.md §6, anti-tell "never clean up a raw record for display".
  * CONTRACT.md §D (masking), §E (scorecard).
  *
- * Owns: #feed-health, #data-room on index.html.
+ * Runs on both pages and renders whichever containers exist:
+ *   index.html    → #feed-health only
+ *   dataroom.html → #data-room (feed tabs, the aligned raw→canonical table,
+ *                   the duplicate log and the scorecard)
  */
 
 import {
@@ -26,18 +28,19 @@ function init() {
   if (dataRoomEl) {
     dataRoomEl.innerHTML = "";
     dataRoomEl.appendChild(buildTabs());
-    const panes = document.createElement("div");
-    panes.className = "data-room__panes";
-    panes.id = "data-room-panes";
-    dataRoomEl.appendChild(panes);
+
+    const tableWrap = document.createElement("div");
+    tableWrap.className = "data-room__table-wrap";
+    tableWrap.id = "data-room-panes";
+    dataRoomEl.appendChild(tableWrap);
 
     const dupSection = document.createElement("div");
-    dupSection.className = "data-room__duplicates";
+    dupSection.className = "data-room__duplicates panel";
     dupSection.id = "data-room-duplicates";
     dataRoomEl.appendChild(dupSection);
 
     const scoreSection = document.createElement("div");
-    scoreSection.className = "data-room__scorecard";
+    scoreSection.className = "data-room__scorecard panel";
     scoreSection.id = "data-room-scorecard";
     dataRoomEl.appendChild(scoreSection);
   }
@@ -180,96 +183,139 @@ function refreshNormalizedColumn() {
   if (lastRawResponse && lastRawResponse.feed === activeFeed) renderPanes();
 }
 
+// The point of this view is the transformation, not two blobs of text: one row
+// per raw record, the canonical event it became on the same row, and the exact
+// changes between them in the middle.
 function renderPanes() {
-  const panes = document.getElementById("data-room-panes");
-  if (!panes || !lastRawResponse) return;
-  panes.innerHTML = "";
+  const wrap = document.getElementById("data-room-panes");
+  if (!wrap || !lastRawResponse) return;
+  wrap.innerHTML = "";
 
-  const rawCol = document.createElement("div");
-  rawCol.className = "data-room__col data-room__col--raw";
-  const rawHeading = document.createElement("h3");
-  rawHeading.textContent = "Original data";
-  rawCol.appendChild(rawHeading);
-  const rawHeadingHi = document.createElement("p");
-  rawHeadingHi.className = "data-room__col-hi";
-  rawHeadingHi.lang = "hi";
-  rawHeadingHi.textContent = "मूल डेटा";
-  rawCol.appendChild(rawHeadingHi);
+  const records = lastRawResponse.records || [];
+  if (!records.length) {
+    wrap.innerHTML = `<p class="data-room__loading">No records for this feed yet.</p>`;
+    return;
+  }
 
-  const cleanCol = document.createElement("div");
-  cleanCol.className = "data-room__col data-room__col--clean";
-  const cleanHeading = document.createElement("h3");
-  cleanHeading.textContent = "Cleaned data";
-  cleanCol.appendChild(cleanHeading);
-  const cleanHeadingHi = document.createElement("p");
-  cleanHeadingHi.className = "data-room__col-hi";
-  cleanHeadingHi.lang = "hi";
-  cleanHeadingHi.textContent = "साफ़ किया गया डेटा";
-  cleanCol.appendChild(cleanHeadingHi);
-
-  if (lastRawResponse.format === "csv" && lastRawResponse.header) {
+  if (lastRawResponse.header) {
     const header = document.createElement("p");
     header.className = "data-room__csv-header";
-    header.textContent = lastRawResponse.header;
-    rawCol.appendChild(header);
+    header.textContent = `${lastRawResponse.format.toUpperCase()} header: ${lastRawResponse.header}`;
+    wrap.appendChild(header);
   }
 
-  for (const record of lastRawResponse.records || []) {
-    rawCol.appendChild(buildRawRow(record));
-    cleanCol.appendChild(buildCleanRow(record));
-  }
+  const table = document.createElement("table");
+  table.className = "xform";
 
-  panes.appendChild(rawCol);
-  panes.appendChild(cleanCol);
+  const thead = document.createElement("thead");
+  const hrow = document.createElement("tr");
+  for (const [label, cls] of [["As the feed sent it", "xform__raw"],
+                              ["What changed", "xform__delta"],
+                              ["Canonical event", "xform__clean"]]) {
+    const th = document.createElement("th");
+    th.className = cls;
+    th.textContent = label;
+    hrow.appendChild(th);
+  }
+  thead.appendChild(hrow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  for (const record of records) tbody.appendChild(buildXformRow(record));
+  table.appendChild(tbody);
+  wrap.appendChild(table);
 }
 
-function buildRawRow(record) {
-  const row = document.createElement("div");
-  row.className = "data-room__raw-row";
-  const pre = document.createElement("code");
-  pre.className = "data-room__raw-text";
-  pre.textContent = lastRawResponse.format === "json" ? JSON.stringify(record.raw) : record.raw;
-  row.appendChild(pre);
-
-  const meta = document.createElement("p");
-  meta.className = "data-room__raw-meta";
-  const bits = [record.raw_ref];
-  if (record.parsed_ok === false) bits.push(`not parsed — ${record.reason}`);
-  if (typeof record.items_masked === "number" && record.items_masked > 0) {
-    bits.push(`${record.items_masked} item${record.items_masked === 1 ? "" : "s"} masked`);
-  }
-  meta.textContent = bits.join(" · ");
-  row.appendChild(meta);
-  return row;
-}
-
-function buildCleanRow(record) {
-  const row = document.createElement("div");
-  row.className = "data-room__clean-row";
+function buildXformRow(record) {
+  const tr = document.createElement("tr");
   const matches = findMatchingEvents(record.raw_ref);
-  if (matches.length === 0) {
-    const p = document.createElement("p");
-    p.className = "data-room__clean-empty";
-    p.textContent = record.parsed_ok === false
-      ? "Dropped — never became an event."
-      : "Not in the active window right now.";
-    row.appendChild(p);
-    return row;
+  const ev = matches[0] || null;
+
+  // --- as the feed sent it ---
+  const rawTd = document.createElement("td");
+  rawTd.className = "xform__raw";
+  const code = document.createElement("code");
+  code.className = "xform__rawtext";
+  code.textContent = lastRawResponse.format === "json" ? JSON.stringify(record.raw) : record.raw;
+  rawTd.appendChild(code);
+  const ref = document.createElement("span");
+  ref.className = "xform__ref";
+  ref.textContent = record.raw_ref;
+  rawTd.appendChild(ref);
+  tr.appendChild(rawTd);
+
+  // --- what changed ---
+  const deltaTd = document.createElement("td");
+  deltaTd.className = "xform__delta";
+  // Masking happens on ingest, so it is true of the raw record whether or not
+  // the clock has reached the event yet — state it either way.
+  if (typeof record.items_masked === "number" && record.items_masked > 0) {
+    deltaTd.appendChild(changeLine("Personal details",
+      `${record.items_masked} masked before storage`, "is-mask"));
   }
-  for (const ev of matches) {
-    const p = document.createElement("p");
-    const cat = CATEGORY_LABELS[ev.category]?.en || ev.category;
-    p.textContent = `${cat} · severity ${ev.severity.toFixed(2)} · confidence ${ev.confidence.toFixed(2)} · ${toISTClock(ev.start_utc)}`;
-    if (ev.is_duplicate) {
-      const flag = document.createElement("span");
-      flag.className = "data-room__duplicate-flag";
-      flag.textContent = "duplicate";
-      p.appendChild(document.createTextNode(" "));
-      p.appendChild(flag);
+  if (record.parsed_ok === false) {
+    deltaTd.appendChild(changeLine("Not parsed", record.reason || "malformed record", "is-drop"));
+  } else if (!ev) {
+    deltaTd.appendChild(changeLine("Not yet in window", "the clock has not reached this record", "is-quiet"));
+  } else {
+    if (ev.start_utc) {
+      deltaTd.appendChild(changeLine("Time", `${toISTClock(ev.start_utc)} IST → ${ev.start_utc}`));
     }
-    row.appendChild(p);
+    if (ev.lat != null && ev.lon != null) {
+      deltaTd.appendChild(changeLine(resolutionWord(ev.resolution),
+        `${ev.lat.toFixed(4)}, ${ev.lon.toFixed(4)} → ${ev.h3_cell}`));
+    }
+    if (ev.is_duplicate) {
+      deltaTd.appendChild(changeLine("Duplicate", "flagged, not counted again", "is-dup"));
+    }
   }
-  return row;
+  tr.appendChild(deltaTd);
+
+  // --- canonical event ---
+  const cleanTd = document.createElement("td");
+  cleanTd.className = "xform__clean";
+  if (!ev) {
+    cleanTd.textContent = record.parsed_ok === false ? "Dropped — never became an event." : "—";
+    cleanTd.classList.add("is-quiet");
+  } else {
+    const cat = document.createElement("span");
+    cat.className = "xform__category";
+    cat.textContent = CATEGORY_LABELS[ev.category]?.en || ev.category;
+    cleanTd.appendChild(cat);
+
+    const dl = document.createElement("dl");
+    dl.className = "xform__fields";
+    addRow(dl, "category", ev.category);
+    addRow(dl, "severity", ev.severity.toFixed(2));
+    addRow(dl, "confidence", ev.confidence.toFixed(2));
+    if (ev.measure != null) addRow(dl, "measure", String(ev.measure));
+    cleanTd.appendChild(dl);
+  }
+  tr.appendChild(cleanTd);
+
+  return tr;
+}
+
+function changeLine(label, value, extraClass) {
+  const p = document.createElement("p");
+  p.className = "xform__change" + (extraClass ? ` ${extraClass}` : "");
+  const k = document.createElement("span");
+  k.className = "xform__change-key";
+  k.textContent = label;
+  const v = document.createElement("span");
+  v.className = "xform__change-val";
+  v.textContent = value;
+  p.appendChild(k);
+  p.appendChild(v);
+  return p;
+}
+
+// CONTRACT.md's `resolution` says how a place in the raw record became a point.
+function resolutionWord(resolution) {
+  if (resolution === "landmark") return "Landmark resolved";
+  if (resolution === "registry") return "Registry id resolved";
+  if (resolution === "direct") return "Coordinates given";
+  return "Place resolved";
 }
 
 function findMatchingEvents(rawRef) {

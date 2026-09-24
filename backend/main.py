@@ -13,6 +13,12 @@ from api.state import TimelineStore
 from api.websocket import Broadcaster
 from api import routes as routes_mod
 from api import control as control_mod
+from contract_constants import REPLAY_BOOKMARKS
+
+# The clock opens here rather than at window_start: nothing has linked yet at
+# 12:00Z, so a cold open there is an empty map that reads as a broken app.
+# peak_activity is the exact minute GT-001 becomes visible.
+OPENING_BOOKMARK = "peak_activity"
 
 logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")
 logger = logging.getLogger("nagarnaadi")
@@ -113,11 +119,18 @@ async def lifespan(app: FastAPI):
     clock = ReplayClock(start_utc, end_utc, scenario)
     broadcaster = Broadcaster()
 
+    opening_utc = REPLAY_BOOKMARKS[OPENING_BOOKMARK]
+    clock.jump_to(opening_utc)
+    # Without this the first tick would replay every event from window_start as
+    # "new" over the WS.
+    clock._last_push_time = clock.now()
+
     # Inject shared state into route modules
     routes_mod.init(store, clock, broadcaster)
     control_mod.init(store, clock, broadcaster)
 
     logger.info(f"Replay clock ready: {start_utc} → {end_utc}, scenario={scenario}")
+    logger.info(f"Opening at {OPENING_BOOKMARK} ({opening_utc}), paused")
 
     # Start the tick loop
     _tick_task = asyncio.create_task(_tick_loop())

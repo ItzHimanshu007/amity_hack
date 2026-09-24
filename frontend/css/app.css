@@ -181,22 +181,20 @@ html, body {
 }
 
 /* -------------------------------------------------------------- #naadi-strip
-   DESIGN.md component #5 — the one bold element — plus the per-feed lanes
-   and the play/speed scrub row this build adds beneath it. See naadi.js for
-   the exact pixel budget (MAIN_H/LANE_H/CTRL_H) that these rules assume. */
+   DESIGN.md component #5 — the one bold main lane, at its exact 72px — plus
+   the per-feed rows (.nn-lanes) below it and the transport bar after it
+   (js/naadi.js's buildTransport, styled further down). */
 #naadi-strip {
   position: relative;
-  display: block;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   background: var(--chuna);
   border-bottom: var(--border);
-  overflow: hidden;
 }
 .nn-naadi__canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
   display: block;
+  width: 100%;
 }
 .nn-naadi__value {
   position: absolute;
@@ -219,7 +217,6 @@ html, body {
   top: 0;
   left: 0;
   width: 100%;
-  height: 100%;
   pointer-events: none;
 }
 .nn-naadi__marker-label {
@@ -229,122 +226,49 @@ html, body {
   white-space: nowrap;
   color: var(--syahi);
 }
-.nn-naadi__lanes-meta {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  box-sizing: border-box;
-  pointer-events: none;
+
+/* Per-feed rows: one real flex line each — label, trace, state word — so
+   they read as an aligned table instead of a shared canvas with labels
+   floated on top of it. */
+.nn-lanes {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--rekha);
 }
-.nn-naadi__lane-row {
+.nn-lane {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  height: 18px;
+  gap: var(--s3);
   padding: 0 var(--s3);
-  box-sizing: border-box;
+  border-top: 1px solid var(--rekha);
 }
-.nn-naadi__lane-label,
-.nn-naadi__lane-state {
-  color: var(--dhool);
-  background: color-mix(in srgb, var(--chuna) 88%, transparent);
-}
-.nn-naadi__lane-label { padding-right: 6px; }
-.nn-naadi__lane-state { padding-left: 6px; text-align: right; }
-.nn-naadi__lane-row--killed .nn-naadi__lane-label {
-  text-decoration: line-through;
-  text-decoration-color: var(--syahi);
-}
-.nn-naadi__controls {
-  position: absolute;
-  left: 0;
-  width: 100%;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  gap: var(--s4);
-  padding: 0 var(--s3);
-  border-top: var(--border);
-  background: var(--chuna);
-}
-.nn-naadi__playbtn {
-  appearance: none;
-  background: none;
-  border: none;
-  padding: 0;
-  margin: 0;
-  color: var(--neel);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-.nn-naadi__playbtn:hover {
-  text-decoration-thickness: 2px;
-}
-.nn-naadi__speedtrack {
-  position: relative;
-  flex: 1 1 auto;
-  min-width: 120px;
-  height: 20px;
-  cursor: pointer;
-  touch-action: none;
-}
-.nn-naadi__speedtrack::before {
-  content: "";
-  position: absolute;
-  top: 50%;
-  left: 0;
-  right: 0;
-  height: 2px;
-  background: var(--rekha);
-  transform: translateY(-50%);
-}
-.nn-naadi__speedtrack-fill {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  height: 2px;
-  width: 0;
-  background: var(--neel);
-  transform: translateY(-50%);
-  pointer-events: none;
-}
-.nn-naadi__speedtrack-handle {
-  position: absolute;
-  top: 50%;
-  left: 0;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--neel);
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-}
-.nn-naadi__speed-tick {
-  position: absolute;
-  top: -14px;
-  transform: translateX(-50%);
-  color: var(--dhool);
-  pointer-events: none;
-}
-.nn-naadi__clock {
-  color: var(--dhool);
-  white-space: nowrap;
-  flex: 0 0 auto;
-}
-.nn-naadi__seek-note {
+.nn-lane:first-child { border-top: none; }
+.nn-lane__label {
+  flex: 0 0 92px;
   color: var(--dhool);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 30ch;
-  flex: 0 1 auto;
 }
-
-@media (max-width: 640px) {
-  .nn-naadi__seek-note { display: none; }
+.nn-lane__spark {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 18px;
+  display: block;
 }
+.nn-lane__state {
+  flex: 0 0 auto;
+  min-width: 8em;
+  text-align: right;
+  color: var(--dhool);
+  white-space: nowrap;
+}
+.nn-lane--degraded .nn-lane__label {
+  text-decoration: line-through;
+  text-decoration-color: var(--dhool);
+}
+.nn-lane--degraded .nn-lane__state { color: var(--syahi); }
 
 /* ==================================================== Track B: situations, resident, controls, data room */
 
@@ -365,7 +289,7 @@ body {
   background: var(--chuna);
   color: var(--dhool);
   border-bottom: var(--border);
-  padding: var(--s2) var(--s4);
+  padding: var(--s1) var(--s4);
   font-size: var(--label-size);
   font-weight: var(--label-wght);
   font-stretch: var(--label-wdth)%;
@@ -868,3 +792,396 @@ body {
 .situation-summary__updated { font-size: var(--label-size); color: var(--dhool); margin: 0 0 var(--s2); }
 .situation-summary__empty { color: var(--dhool); }
 .situation-list__heading { font-size: var(--label-size); color: var(--dhool); margin: 0; }
+
+
+/* ======================================== Layout: the map IS the dashboard
+   The city view is a fixed full-viewport map with every panel floating over
+   it. Panels are solid --kagaz with a 1px --rekha border — never translucent
+   or blurred (DESIGN.md anti-tells) — because they sit over live map detail
+   and have to stay readable. They hug the edges so the centre-right, where
+   situation overlays and hex fills live, stays unobstructed.
+
+   Divergence worth knowing: DESIGN.md §1 specifies the status block as "no
+   card, no border, sits directly on --chuna". Floating over a map it needs a
+   surface to stay legible, so it gets the panel treatment here. */
+
+:root {
+  --panel-pad: var(--s4);
+  --overlay-gap: var(--s3);
+  --overlay-inset: var(--s4);
+  --band-h: 200px;               /* naadi strip + transport, measured below */
+}
+
+.city-body {
+  height: 100%;
+  overflow: hidden;              /* the map fills the viewport; panels scroll */
+}
+
+/* --------------------------------------------------------------- the map -- */
+.city-body #map {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  border: none;
+  border-radius: 0;
+  background: var(--chuna);
+  z-index: 0;
+}
+
+/* -------------------------------------------------------------- top band -- */
+#top-band {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 3;
+  background: var(--kagaz);
+  border-bottom: var(--border);
+}
+#top-band #simulated-banner { border-bottom: var(--border); }
+#top-band #naadi-strip { background: var(--kagaz); border-bottom: none; }
+.nn-transport {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2) var(--s5);
+  padding: var(--s2) var(--s4);
+  border-top: var(--border);
+  background: var(--kagaz);
+}
+.nn-transport__play {
+  appearance: none;
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: var(--label-size);
+  color: var(--neel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.nn-transport__play:hover { text-decoration-thickness: 2px; }
+.nn-transport__speeds,
+.nn-transport__bookmarks { display: flex; align-items: center; gap: var(--s2); }
+.nn-transport__label { color: var(--dhool); white-space: nowrap; }
+.nn-transport__speed {
+  appearance: none;
+  font: inherit;
+  font-size: var(--label-size);
+  font-variant-numeric: tabular-nums;
+  color: var(--syahi);
+  background: var(--kagaz);
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius-chip);
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.nn-transport__speed:hover { border-color: var(--dhool); }
+.nn-transport__speed.is-active {
+  border-color: var(--neel);
+  box-shadow: inset 0 0 0 1px var(--neel);
+  font-weight: 700;
+}
+.nn-transport__clock {
+  margin-left: auto;
+  color: var(--dhool);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.nn-transport__jump {
+  font: inherit;
+  font-size: var(--label-size);
+  color: var(--syahi);
+  background: var(--kagaz);
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius-chip);
+  padding: 3px 6px;
+  cursor: pointer;
+  max-width: 230px;
+}
+
+/* -------------------------------------------------------------- overlays -- */
+#city-view {
+  position: fixed;
+  inset: 0;
+  z-index: 2;
+  padding: calc(var(--band-h) + var(--overlay-inset)) var(--overlay-inset) var(--overlay-inset);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--s5);
+  pointer-events: none;          /* the map stays draggable between panels */
+  box-sizing: border-box;
+}
+/* The column scrolls as one, so a tall stack of panels never runs off the
+   bottom of the viewport and no panel clips its own last row. */
+.overlay {
+  display: flex;
+  flex-direction: column;
+  gap: var(--overlay-gap);
+  pointer-events: auto;
+  max-height: 100%;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+}
+.overlay > * { flex: 0 0 auto; }
+.overlay--left  { width: min(370px, 32vw); }
+.overlay--right { width: min(420px, 34vw); }
+
+/* One panel treatment for everything floating over the map. */
+#status-block,
+#situation-rail,
+#unrelated-section,
+#feed-health,
+#sim-controls {
+  box-sizing: border-box;
+  background: var(--kagaz);
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--panel-pad);
+}
+
+/* The status block is the "what's wrong right now" anchor: compact over the
+   map, so the word and one summary line only. */
+#status-block .nn-status { padding: 0; background: transparent; }
+#status-block .nn-status__word { font-size: 34px; line-height: 1.12; }
+#status-block .nn-status__summary--hi { display: none !important; }
+
+#situation-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+#situation-rail[hidden], #unrelated-section:empty { display: none; }
+
+/* A link out of the full-screen map to the data room. */
+.page-link {
+  position: fixed;
+  right: var(--overlay-inset);
+  bottom: calc(var(--overlay-inset) + 24px); /* clears MapLibre's attribution */
+  z-index: 4;
+  background: var(--kagaz);
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--s2) var(--s3);
+  font-size: var(--label-size);
+  color: var(--neel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media (max-width: 900px) {
+  .city-body { overflow: auto; }
+  .city-body #map { position: sticky; height: 60vh; }
+  #city-view { position: static; padding: var(--s4); flex-direction: column; }
+  .overlay--left, .overlay--right { width: 100%; }
+}
+
+/* ---------------------------------------------- type hierarchy: three tiers
+   Primary   — alert word, situation headline.
+   Secondary — zone, confidence, member counts.
+   Tertiary  — timestamps, feed names, counts, ids, in --dhool. */
+.situation-card__headline-en {
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.situation-card__zone,
+.feed-health-row__counts,
+.xform__ref,
+.nn-status__updated { color: var(--dhool); }
+
+.feed-health-row__counts,
+.xform__rawtext,
+.xform__change,
+.xform__fields { font-variant-numeric: tabular-nums; }
+
+/* Alert colour as a scan cue: the 4px left edge already exists as
+   .situation-card::before keyed on data-level (and carries the red hatch);
+   this only adds the 6% surface tint. The alert word stays — never colour
+   alone. */
+.situation-card { background: var(--kagaz); }
+.situation-card[data-level="green"]  { background: var(--green-surface); }
+.situation-card[data-level="yellow"] { background: var(--yellow-surface); }
+.situation-card[data-level="orange"] { background: var(--orange-surface); }
+.situation-card[data-level="red"]    { background: var(--red-surface); }
+
+/* Feed-health as a table: columns instead of a flex run, DESIGN.md §6's 44px
+   row height kept, existing border-bottom left as the only rule. */
+/* Two compact lines per feed in a 370px column: name and its exact-action
+   control on top, state and counts as one tertiary line beneath. */
+.feed-health-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name control" "state counts";
+  align-items: baseline;
+  gap: 2px var(--s3);
+  height: auto;
+  padding-block: var(--s2);
+}
+.feed-health-row__name {
+  grid-area: name;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.feed-health-row__state {
+  grid-area: state;
+  font-size: var(--label-size);
+  min-width: 0;
+  gap: 5px;
+}
+.feed-health-row__control { grid-area: control; white-space: nowrap; }
+.feed-health-row__counts {
+  grid-area: counts;
+  font-size: var(--label-size);
+  text-align: right;
+  white-space: nowrap;
+}
+.feed-health-row:last-of-type { border-bottom: none; }
+
+/* ================================================= Data room (its own page)
+   A transformation table, not two blobs of prose: one row per raw record, the
+   canonical event it became on the same row, and the exact changes between. */
+
+.dataroom-body {
+  background: var(--chuna);
+  padding: 0 var(--s5) var(--s7);
+}
+.page-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s5);
+  max-width: 1280px;
+  margin: 0 auto;
+  padding-block: var(--s5) var(--s4);
+}
+.dataroom-body .page-link { position: static; flex: 0 0 auto; }
+.page-head__title {
+  margin: 0;
+  font-size: var(--heading-size);
+  line-height: var(--heading-lh);
+  font-weight: 700;
+}
+.page-head__sub {
+  margin: var(--s1) 0 0;
+  color: var(--dhool);
+  max-width: 62ch;
+}
+
+#data-room {
+  max-width: 1280px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+}
+#data-room .panel {
+  background: var(--kagaz);
+  border: var(--border);
+  border-radius: var(--radius);
+  padding: var(--s5);
+}
+
+.data-room__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s4);
+  padding-bottom: var(--s3);
+  border-bottom: var(--border);
+}
+.data-room__tab { font-size: var(--body-size); font-weight: 600; text-decoration: none; }
+.data-room__tab.is-active { color: var(--syahi); text-decoration: underline; text-underline-offset: 4px; }
+
+.data-room__table-wrap {
+  background: var(--kagaz);
+  border: var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+.data-room__csv-header {
+  margin: 0;
+  padding: var(--s3) var(--s4);
+  border-bottom: var(--border);
+  font-size: var(--label-size);
+  color: var(--dhool);
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.xform {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--label-size);
+  line-height: 1.45;
+  table-layout: fixed;
+}
+.xform th {
+  text-align: left;
+  font-size: var(--label-size);
+  font-weight: 600;
+  color: var(--dhool);
+  padding: var(--s3) var(--s4);
+  border-bottom: var(--border);
+  white-space: nowrap;
+}
+.xform td {
+  vertical-align: top;
+  padding: var(--s3) var(--s4);
+  border-top: 1px solid var(--rekha);
+}
+.xform tbody tr:first-child td { border-top: none; }
+.xform__raw   { width: 42%; }
+.xform__delta { width: 30%; }
+.xform__clean { width: 28%; }
+
+.xform__rawtext {
+  display: block;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--syahi);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.xform__ref {
+  display: block;
+  margin-top: var(--s1);
+  font-size: 12px;
+}
+
+.xform__change { display: flex; gap: var(--s2); margin: 0 0 var(--s1); }
+.xform__change:last-child { margin-bottom: 0; }
+.xform__change-key {
+  flex: 0 0 auto;
+  color: var(--dhool);
+  min-width: 8.5em;
+}
+.xform__change-val { color: var(--syahi); word-break: break-word; }
+.xform__change.is-mask .xform__change-val { font-weight: 600; }
+.xform__change.is-drop .xform__change-val,
+.xform__change.is-dup  .xform__change-val { color: var(--syahi); font-weight: 600; }
+.xform__change.is-quiet .xform__change-val { color: var(--dhool); }
+
+.xform__category { display: block; font-weight: 700; margin-bottom: var(--s1); }
+.xform__fields { display: grid; grid-template-columns: auto 1fr; gap: 1px var(--s3); margin: 0; }
+.xform__fields dt { color: var(--dhool); }
+.xform__fields dd { margin: 0; }
+.xform__clean.is-quiet { color: var(--dhool); }
+
+.data-room__loading { padding: var(--s5); color: var(--dhool); margin: 0; }
+
+@media (max-width: 820px) {
+  .xform, .xform tbody, .xform thead, .xform tr, .xform td, .xform th { display: block; width: auto; }
+  .xform thead { display: none; }
+  .xform tbody tr { border-top: 1px solid var(--rekha); padding-block: var(--s2); }
+  .xform tbody tr:first-child { border-top: none; }
+  .xform td { border-top: none; padding-block: var(--s1); }
+}
