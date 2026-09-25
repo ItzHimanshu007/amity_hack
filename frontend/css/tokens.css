@@ -23,6 +23,9 @@
 
   /* --- status-neutral palette --- */
   --chuna: #F2F4F1;   /* page background */
+  --kagaz: #FAFBF9;   /* panel/card surface: one step lighter than --chuna.
+                         Depth comes from this surface + a --rekha border,
+                         never a shadow (DESIGN.md anti-tells). */
   --syahi: #1F2A30;   /* ink: text, ECG trace, hex outlines */
   --dhool: #6B7780;   /* secondary text */
   --rekha: #D5DBD8;   /* borders, dividers, ECG grid */
@@ -46,6 +49,14 @@
   --yellow-edge: color-mix(in srgb, var(--yellow) 45%, transparent);
   --orange-edge: color-mix(in srgb, var(--orange) 45%, transparent);
   --red-edge:    color-mix(in srgb, var(--red)    45%, transparent);
+
+  /* Card surfaces (6%): enough tint to scan severity down a rail of cards,
+     far short of the 12% fill the map uses. Paired with the alert word and a
+     4px edge — never color alone. */
+  --green-surface:  color-mix(in srgb, var(--green)  6%, var(--kagaz));
+  --yellow-surface: color-mix(in srgb, var(--yellow) 6%, var(--kagaz));
+  --orange-surface: color-mix(in srgb, var(--orange) 6%, var(--kagaz));
+  --red-surface:    color-mix(in srgb, var(--red)    6%, var(--kagaz));
 
   /* --- type --- */
   --font: "Anek Devanagari", system-ui, sans-serif;

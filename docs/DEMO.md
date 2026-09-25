@@ -38,6 +38,7 @@ On data honesty, say exactly this. Never say "nothing on screen is made up".
    - backend: `cd backend && uvicorn main:app --port 8000`
    - frontend: `cd frontend && python -m http.server 5500`
    - `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`
+   - The backend opens paused at 7:30 PM; step 4 moves it to 7:05 PM.
 3. **Tab 1:** `http://127.0.0.1:5500/index.html`.
    **Tab 2:** `http://127.0.0.1:5500/resident.html`. In Tab 2, set **Alert me about** to **Malviya Nagar**.
 4. **Tab 1 setup:**
