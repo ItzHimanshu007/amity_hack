@@ -161,6 +161,12 @@ class TimelineStore:
 
     def _load_rejected(self):
         self.rejected = self._load_jsonl("rejected_candidates.jsonl")
+        # A rejected link can only be shown once all the anomaly windows it
+        # considered have closed: reveal at the latest of their window_end_utc.
+        wend = {a["anomaly_id"]: a["window_end_utc"] for a in self.anomalies}
+        for r in self.rejected:
+            ends = [wend[aid] for aid in r.get("anomaly_ids", []) if aid in wend]
+            r["_reveal_utc"] = max(ends) if ends else None
 
     def _load_ground_truth(self):
         path = self.data_dir / "ground_truth.json"
@@ -358,6 +364,13 @@ class TimelineStore:
         """Active situations (status == active) as partial views."""
         return [s for s in self.revealed_situations(sim_time)
                 if s.get("status") == "active"]
+
+    def revealed_rejected(self, sim_time: datetime) -> list:
+        """Rejected candidate links whose evidence windows have all closed."""
+        cutoff = _iso(sim_time)
+        return [{k: v for k, v in r.items() if not k.startswith("_")}
+                for r in self.rejected
+                if r.get("_reveal_utc") and r["_reveal_utc"] <= cutoff]
 
     def revealed_anomalies(self, sim_time: datetime) -> list:
         """Anomalies whose window_end_utc <= sim_time."""

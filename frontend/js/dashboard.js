@@ -19,6 +19,7 @@
 import {
   fetchState, fetchScorecard, connectStream, selectSituation,
   CATEGORY_LABELS, FEED_IDS, FEED_LABELS, ACTION_BY_CATEGORY, toISTClock, formatDuration,
+  fetchTerrain, isFloodSituation, LANDMARK_BY_CELL,
 } from "./api.js";
 
 // CONTRACT.md §B "Emitted by" column, mirrored (closed enum — see api.js's
@@ -234,9 +235,62 @@ function renderProofStrip(card) {
   el.appendChild(link);
 }
 
+// ======================================================== terrain context ==
+// Describes what real terrain (tools/terrain/build_terrain.py) says about a
+// flood-type situation's own areas. Context only: never a ✓, never confidence.
+
+let terrain = null;
+const DRAIN_PCT = 60;   // carries more runoff than 60% of the city's areas
+const LOW_M = -2;       // sits at least 2 m below its surroundings
+const RAISED_M = 2;     // sits at least 2 m above its surroundings
+
+function terrainContext(situation) {
+  if (!terrain || !isFloodSituation(situation)) return null;
+  const cells = (situation.zone?.h3_cells || []).filter((c) => terrain.cells[c]);
+  if (!cells.length) return null;
+  let unnamed = 0;
+  const parts = cells.map((c) => {
+    const t = terrain.cells[c];
+    const name = LANDMARK_BY_CELL[c] || (unnamed++ ? "another area" : "one area");
+    const drains = t.flow_pct >= DRAIN_PCT;
+    const low = t.rel_to_surroundings_m <= LOW_M;
+    const raised = t.rel_to_surroundings_m >= RAISED_M;
+    let text;
+    if (low && drains) text = `${name} sits ${Math.abs(t.rel_to_surroundings_m).toFixed(0)} m below its surroundings on a drainage path`;
+    else if (low) text = `${name} sits ${Math.abs(t.rel_to_surroundings_m).toFixed(0)} m below its surroundings`;
+    else if (drains) text = `${name} is on a drainage path (more runoff than ${t.flow_pct}% of the city)`;
+    else if (raised) text = `${name} sits ${t.rel_to_surroundings_m.toFixed(0)} m above its surroundings`;
+    else text = `${name} is level with its surroundings`;
+    return { text, supports: low || drains };
+  });
+  const supporting = parts.filter((p) => p.supports).length;
+  const verdict = supporting === parts.length
+    ? "Terrain supports this"
+    : supporting === 0
+      ? "Terrain doesn't explain this: blocked drains or local low spots are more likely"
+      : "Terrain only partly explains this: local drainage likely matters";
+  return `${verdict}. ${parts.map((p) => p.text).join("; ")}.`;
+}
+
 // ========================================================= hero situation ==
 
 const situationsById = new Map();
+let rejectedCandidates = [];
+let lastRejectedFetch = { at: 0, sim: null };
+
+// GET /state's rejected_candidates grows as the replay reveals evidence. It has
+// no WS message, so refresh it when the sim clock has moved (at most every 4 s)
+// and share it with js/situations.js via a window event.
+function setRejected(list) {
+  rejectedCandidates = list || [];
+  window.dispatchEvent(new CustomEvent("rejected:update", { detail: rejectedCandidates }));
+  renderHero();
+}
+function maybeRefreshRejected(simTimeUtc) {
+  if (simTimeUtc === lastRejectedFetch.sim || Date.now() - lastRejectedFetch.at < 4000) return;
+  lastRejectedFetch = { at: Date.now(), sim: simTimeUtc };
+  fetchState().then((st) => setRejected(st.rejected_candidates)).catch(() => { /* keep last list */ });
+}
 
 function pickPrimarySituation() {
   let best = null;
@@ -287,8 +341,23 @@ function renderHeroEmpty() {
   el.appendChild(sub);
 }
 
+// Tells js/city.js which situation the hero shows; `live` is true only when a
+// WS situation message (not the initial snapshot) changed it.
+let lastHeroId = null;
+let heroChangeIsLive = false;
+function announceHero(situation) {
+  const id = situation ? situation.situation_id : null;
+  if (id === lastHeroId) return;
+  lastHeroId = id;
+  window.dispatchEvent(new CustomEvent("hero:changed", { detail: { situation, live: heroChangeIsLive } }));
+}
+window.addEventListener("hero:request", () => {
+  window.dispatchEvent(new CustomEvent("hero:changed", { detail: { situation: pickPrimarySituation(), live: false } }));
+});
+
 function renderHero() {
   const situation = pickPrimarySituation();
+  announceHero(situation);
   if (!situation) { renderHeroEmpty(); renderTimeline(null); return; }
 
   const el = document.getElementById("situation-hero");
@@ -451,6 +520,40 @@ function renderHero() {
   }
   el.appendChild(whyList);
 
+  // ---- terrain context (real elevation; not used to link) ----
+  const terrainText = terrainContext(situation);
+  if (terrainText) {
+    const tHead = document.createElement("p");
+    tHead.className = "situation-hero__section-heading label";
+    tHead.textContent = "Terrain context";
+    const tNote = document.createElement("span");
+    tNote.className = "situation-hero__terrain-note";
+    tNote.textContent = " · real elevation, not used to link";
+    tHead.appendChild(tNote);
+    el.appendChild(tHead);
+    const tLine = document.createElement("p");
+    tLine.className = "situation-hero__terrain";
+    tLine.textContent = terrainText;
+    el.appendChild(tLine);
+  }
+
+  // ---- what the linker refused to link here ----
+  const cells = new Set(situation.zone?.h3_cells || []);
+  const nearby = rejectedCandidates.filter((r) => (r.h3_cells || []).some((c) => cells.has(c)));
+  if (rejectedCandidates.length) {
+    const rej = document.createElement("button");
+    rej.type = "button";
+    rej.className = "situation-hero__rejected";
+    rej.textContent = nearby.length
+      ? `${nearby.length} other pattern${nearby.length === 1 ? "" : "s"} in these areas rejected as coincidence · see why`
+      : `${rejectedCandidates.length} pattern${rejectedCandidates.length === 1 ? "" : "s"} across the city rejected as coincidence · see why`;
+    rej.addEventListener("click", () => {
+      switchView("situations");
+      document.getElementById("unrelated-section")?.scrollIntoView({ block: "start" });
+    });
+    el.appendChild(rej);
+  }
+
   // ---- predicted next ----
   const predictions = predictionList(situation.predicted_next);
   if (predictions.length) {
@@ -542,6 +645,7 @@ function renderTimeline(situation) {
 
 function onTick(tick) {
   lastTick = tick;
+  maybeRefreshRejected(tick.sim_time_utc);
   connected = true;
   renderTopbarStatus();
   renderCityHealth({ pulse_score: tick.city_pulse_score, alert_level: tick.city_alert_level });
@@ -554,7 +658,9 @@ function onFeedHealth(row) {
 
 function onSituation(situation) {
   situationsById.set(situation.situation_id, situation);
+  heroChangeIsLive = true;
   renderHero();
+  heroChangeIsLive = false;
 }
 
 async function init() {
@@ -568,6 +674,8 @@ async function init() {
     const state = await fetchState();
     for (const row of state.feed_health || []) feedHealthById.set(row.feed, row);
     for (const sit of state.situations || []) situationsById.set(sit.situation_id, sit);
+    rejectedCandidates = state.rejected_candidates || [];
+    lastRejectedFetch = { at: Date.now(), sim: state.sim && state.sim.sim_time_utc };
     renderFeedHealthCompact();
     renderCityHealth(state.city);
     renderHero();
@@ -576,6 +684,7 @@ async function init() {
     renderCityHealth({ pulse_score: 0, alert_level: "green" });
   }
 
+  fetchTerrain().then((t) => { terrain = t; renderHero(); });
   fetchScorecard().then(renderProofStrip).catch(() => { /* strip stays hidden */ });
   connectStream(onTick, null, onSituation, onFeedHealth);
 }

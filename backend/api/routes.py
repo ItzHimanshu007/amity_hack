@@ -63,6 +63,9 @@ def get_state():
         "events": active_evts,
         "situations": active_sits,
         "feed_health": feed_health,
+        # Additive: links the linker considered and rejected, with its reason.
+        # Shown as "Probably unrelated" (DESIGN.md §7).
+        "rejected_candidates": _store.revealed_rejected(sim_time),
     }
 
 

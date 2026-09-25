@@ -19,7 +19,7 @@
 // situation has the highest pulse_score touching that cell/city — it never
 // recomputes a level from a number.
 
-import { fetchState, connectStream, fetchSituation, sendControl } from "./api.js";
+import { fetchState, connectStream, fetchSituation, sendControl, fetchTerrain, isFloodSituation } from "./api.js";
 import { renderStatusBlock } from "./statusblock.js";
 
 const H3_RES = 8;
@@ -85,6 +85,10 @@ function readPalette() {
     greenFill: v("var(--green-fill)"), yellowFill: v("var(--yellow-fill)"), orangeFill: v("var(--orange-fill)"), redFill: v("var(--red-fill)"),
     greenEdge: v("var(--green-edge)"), yellowEdge: v("var(--yellow-edge)"), orangeEdge: v("var(--orange-edge)"), redEdge: v("var(--red-edge)"),
     redHatch: v("color-mix(in srgb, var(--red) 28%, transparent)"),
+    jal: v("var(--jal)"),
+    jalFill: v("color-mix(in srgb, var(--jal) 30%, transparent)"),
+    shade: v("color-mix(in srgb, var(--syahi) 55%, transparent)"),
+    light: v("color-mix(in srgb, var(--chuna) 60%, transparent)"),
   };
   document.body.removeChild(probe);
   return palette;
@@ -191,6 +195,110 @@ function addBasemap() {
   } catch (err) {
     console.warn("[city] basemap unavailable, continuing without it", err);
   }
+}
+
+// ---------------------------------------------------------------- terrain --
+// Real Jaipur elevation (AWS Terrarium / SRTM), vendored under
+// assets/terrain/ by tools/terrain/build_terrain.py, so 3D works offline.
+// Relief and drainage are context: nothing here changes linking or confidence.
+const TERRAIN_TILES = "assets/terrain/{z}/{x}/{y}.png";
+const TERRAIN_BOUNDS = [75.63, 26.73, 75.95, 27.05];
+const TERRAIN_EXAGGERATION = 2;
+const DRAINAGE_FLOW_PCT = 90; // areas carrying more water than 90% of the city
+
+let terrainOn = false;
+let terrainBtn = null;
+let lastUserMoveAt = 0;
+const autoTerrainDone = new Set();
+
+function addTerrainSources() {
+  const dem = { type: "raster-dem", tiles: [TERRAIN_TILES], encoding: "terrarium", tileSize: 256, minzoom: 10, maxzoom: 13, bounds: TERRAIN_BOUNDS };
+  map.addSource("dem-terrain", dem);
+  map.addSource("dem-hillshade", { ...dem });
+  map.addLayer({
+    id: "hillshade",
+    type: "hillshade",
+    source: "dem-hillshade",
+    paint: {
+      "hillshade-exaggeration": 0.35,
+      "hillshade-shadow-color": palette.shade,
+      "hillshade-highlight-color": palette.light,
+      "hillshade-accent-color": palette.shade,
+    },
+  }, "h3-grid-line");
+  map.addSource("drainage", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+  map.addLayer({
+    id: "drainage-fill",
+    type: "fill",
+    source: "drainage",
+    layout: { visibility: "none" },
+    paint: { "fill-color": palette.jalFill },
+  }, "h3-fill");
+  map.addLayer({
+    id: "drainage-edge",
+    type: "line",
+    source: "drainage",
+    layout: { visibility: "none" },
+    paint: { "line-color": palette.jal, "line-width": 1, "line-opacity": 0.6 },
+  }, "h3-fill");
+  fetchTerrain().then((terrain) => {
+    if (!terrain) return;
+    const features = Object.entries(terrain.cells)
+      .filter(([, t]) => t.flow_pct >= DRAINAGE_FLOW_PCT)
+      .map(([cell]) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [ringToLngLat(cell)] }, properties: {} }));
+    map.getSource("drainage").setData({ type: "FeatureCollection", features });
+  });
+}
+
+function setTerrainMode(on, focus) {
+  terrainOn = on;
+  map.setTerrain(on ? { source: "dem-terrain", exaggeration: TERRAIN_EXAGGERATION } : null);
+  for (const id of ["drainage-fill", "drainage-edge"]) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  const target = on
+    // Face north-east so the Nahargarh/Amer ridges sit behind the situation.
+    ? { pitch: 62, bearing: 32, zoom: 12.3, ...(focus ? { center: focus } : {}) }
+    : { pitch: 0, bearing: 0, zoom: MAP_ZOOM, center: MAP_CENTER };
+  if (reduceMotion) map.jumpTo(target);
+  else map.easeTo({ ...target, duration: 2200, easing: formEase });
+  if (terrainBtn) {
+    terrainBtn.textContent = on ? "2D map" : "3D terrain";
+    terrainBtn.setAttribute("aria-pressed", String(on));
+  }
+  const legend = document.getElementById("terrain-legend");
+  if (legend) legend.hidden = !on;
+}
+
+class TerrainControl {
+  onAdd() {
+    const wrap = document.createElement("div");
+    wrap.className = "maplibregl-ctrl maplibregl-ctrl-group nn-terrain-ctrl";
+    terrainBtn = document.createElement("button");
+    terrainBtn.type = "button";
+    terrainBtn.className = "nn-terrain-ctrl__btn";
+    terrainBtn.textContent = "3D terrain";
+    terrainBtn.setAttribute("aria-pressed", "false");
+    terrainBtn.title = "Show real Jaipur terrain in 3D";
+    terrainBtn.addEventListener("click", () => setTerrainMode(!terrainOn, heroFocus));
+    wrap.appendChild(terrainBtn);
+    return wrap;
+  }
+  onRemove() {}
+}
+
+// The hero (js/dashboard.js) announces which situation it is showing. The first
+// time a flood-type situation takes the hero, ease into 3D over its area once.
+let heroFocus = null;
+function onHeroChanged(ev) {
+  const { situation: sit, live } = ev.detail || {};
+  const c = sit?.zone?.centroid;
+  heroFocus = c ? [c.lon, c.lat] : null;
+  // Only a situation arriving during the replay tilts the map; one already on
+  // screen at page load leaves the 2D ten-second read alone.
+  if (!live || !sit || !heroFocus || !isFloodSituation(sit) || autoTerrainDone.has(sit.situation_id)) return;
+  if (reduceMotion || Date.now() - lastUserMoveAt < 10000) return;
+  autoTerrainDone.add(sit.situation_id);
+  if (!terrainOn) setTerrainMode(true, heroFocus);
+  else map.easeTo({ center: heroFocus, duration: 1600, easing: formEase });
 }
 
 function buildStyle(palette) {
@@ -728,15 +836,23 @@ async function init() {
     attributionControl: { compact: true },
     dragRotate: false,
     pitchWithRotate: false,
+    maxPitch: 70,
   });
   map.touchZoomRotate.disableRotation();
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), "bottom-right");
+  map.addControl(new TerrainControl(), "top-right");
+  for (const evName of ["dragstart", "zoomstart", "rotatestart", "pitchstart"]) {
+    map.on(evName, (e) => { if (e.originalEvent) lastUserMoveAt = Date.now(); });
+  }
 
   // A missing basemap tile/glyph must not surface as an uncaught error.
   map.on("error", (e) => console.warn("[city] map resource error", e && e.error ? e.error.message : e));
 
   map.on("load", async () => {
     addBasemap();
+    addTerrainSources();
+    window.addEventListener("hero:changed", onHeroChanged);
+    window.dispatchEvent(new CustomEvent("hero:request"));
     const cells = allBboxCells();
     cellFeaturesById = new Map(cells.map((cell) => [cell, {
       type: "Feature",

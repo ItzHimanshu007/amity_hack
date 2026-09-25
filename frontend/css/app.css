@@ -946,7 +946,7 @@ body {
 .dashboard {
   --dash-h: min(70vh, 620px);
   display: grid;
-  grid-template-columns: 260px 1fr 380px;
+  grid-template-columns: 250px 1fr 430px;
   gap: var(--s4);
   padding: var(--s4) var(--s5);
   align-items: stretch;
@@ -961,7 +961,46 @@ body {
   min-width: 0;
 }
 .dashboard__right { height: auto; min-height: var(--dash-h); overflow: visible; }
-.dashboard__center { min-width: 0; }
+.dashboard__center { min-width: 0; position: relative; }
+
+/* ---- 3D terrain toggle + legend ---- */
+.nn-terrain-ctrl__btn {
+  width: auto !important;
+  padding: 0 var(--s3) !important;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--syahi);
+  white-space: nowrap;
+}
+.nn-terrain-ctrl__btn[aria-pressed="true"] { background: var(--syahi) !important; color: var(--chuna); }
+.terrain-legend {
+  position: absolute;
+  left: var(--s3);
+  top: var(--s3);
+  max-width: 340px;
+  margin: 0;
+  padding: 6px var(--s2);
+  display: flex;
+  gap: var(--s2);
+  align-items: flex-start;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--syahi);
+  background: color-mix(in srgb, var(--chuna) 92%, transparent);
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius-chip);
+  pointer-events: none;
+}
+.terrain-legend[hidden] { display: none; }
+.terrain-legend__swatch {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin-top: 2px;
+  background: color-mix(in srgb, var(--jal) 30%, transparent);
+  border: 1px solid var(--jal);
+}
 .dashboard__center #map {
   height: var(--dash-h);
   width: 100%;
@@ -1193,6 +1232,30 @@ body {
 .situation-hero__matters li { padding-left: 12px; position: relative; line-height: 1.3; }
 .situation-hero__matters li::before { content: "›"; position: absolute; left: 2px; color: var(--dhool); }
 
+.situation-hero__terrain-note { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.situation-hero__terrain {
+  margin: 0 0 var(--s2);
+  padding-left: var(--s2);
+  border-left: 3px solid var(--jal);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.situation-hero__rejected {
+  appearance: none;
+  display: block;
+  margin: -4px 0 var(--s2);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  color: var(--neel);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
 .situation-hero__prediction { margin: 0; font-weight: 600; }
 .situation-hero__prediction-reason { margin: 0 0 2px; color: var(--dhool); font-size: 12px; padding-left: 22px; }
 
@@ -1257,10 +1320,16 @@ body {
 
 /* -------------------------------------------------------- sim console */
 
+/* Pinned to the bottom of the viewport: always reachable, and it never moves
+   when the hero above grows as a situation arrives. */
 .sim-console {
-  border-top: var(--border);
+  position: sticky;
+  bottom: 0;
+  z-index: 25;
+  border-top: 1px solid color-mix(in srgb, var(--syahi) 35%, transparent);
   background: var(--chuna);
 }
+.sim-console[open] .sim-console__body { max-height: 46vh; overflow-y: auto; }
 .sim-console__summary {
   list-style: none;
   cursor: pointer;

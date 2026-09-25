@@ -79,6 +79,32 @@ export async function sendControl(action, payload) {
   return body;
 }
 
+// -------------------------------------------------------- terrain (static) ---
+// Real Jaipur terrain facts per H3 area, built offline by
+// tools/terrain/build_terrain.py. Context only: never feeds linking/confidence.
+let terrainPromise = null;
+export function fetchTerrain() {
+  if (!terrainPromise) {
+    terrainPromise = fetch("assets/terrain/terrain_h3.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
+  return terrainPromise;
+}
+
+// CONTRACT.md §C landmark cells, for naming an area in terrain text.
+export const LANDMARK_BY_CELL = {
+  "883da21891fffff": "Hawa Mahal", "883da20319fffff": "Amer Fort", "883da2033dfffff": "Jal Mahal",
+  "883da218b9fffff": "Albert Hall Museum", "883da218c7fffff": "Jaipur Junction", "883da218c3fffff": "Sindhi Camp",
+  "883da21801fffff": "Vaishali Nagar", "883da20a6dfffff": "Malviya Nagar", "883da219e3fffff": "Mansarovar",
+};
+
+// Flood-type = the chain involves rain or waterlogging; terrain is only
+// described for these.
+export function isFloodSituation(situation) {
+  return (situation?.chain || []).some((s) => s.category === "weather.rain" || s.category === "complaint.waterlogging");
+}
+
 // ------------------------------------------------------------ WS /stream ---
 //
 // One shared socket for the whole page: every call to connectStream() adds

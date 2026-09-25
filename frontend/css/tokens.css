@@ -34,6 +34,9 @@
   --orange: #E0701F;  /* be prepared  */
   --red:    #C62D2D;  /* take action  */
 
+  /* Water / drainage on the terrain layer. Informational, never a status. */
+  --jal:    #2F7FB5;
+
   /* Derived fills (12%) and borders (45%). Do not invent new alphas inline. */
   --green-fill:  color-mix(in srgb, var(--green)  12%, var(--chuna));
   --yellow-fill: color-mix(in srgb, var(--yellow) 12%, var(--chuna));

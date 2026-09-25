@@ -63,6 +63,12 @@ function init() {
   );
 
   onSituationSelected((situationId) => openSituationDetail(situationId, { scrollIntoView: true }));
+
+  // js/dashboard.js refreshes GET /state's rejected_candidates as the replay moves.
+  window.addEventListener("rejected:update", (ev) => {
+    latestRejectedCandidates = ev.detail || [];
+    renderUnrelatedSection();
+  });
 }
 
 // ------------------------------------------------------- WS situation flow -
@@ -621,7 +627,9 @@ function buildRejectedRow(rej) {
 
 function humanize(text, categories, lang) {
   if (!text) return "";
-  let out = text;
+  let out = text
+    .replace("but this category pair is not in the plausibility table", "but neither is a known cause of the other")
+    .replace("लेकिन यह जोड़ी प्रशंसनीयता तालिका में नहीं है", "लेकिन इनमें से कोई दूसरे का ज्ञात कारण नहीं है");
   for (const cat of categories || []) {
     const label = CATEGORY_LABELS[cat]?.[lang];
     if (label) out = out.split(cat).join(label);
