@@ -1631,6 +1631,38 @@ body {
   .sim-console__summary, .sim-console__body { padding-left: var(--s4); padding-right: var(--s4); }
 }
 
+/* "Simulated data" label as a tag in the top bar (index.html only;
+   resident.html keeps the full-width strip). */
+.topbar #simulated-banner {
+  margin-left: var(--s2);
+  padding: 1px 6px;
+  border: 1px solid var(--rekha);
+  border-bottom: 1px solid var(--rekha);
+  border-radius: var(--radius-chip);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+/* Short screens (e.g. 1536x760 at 125% scaling): tighten spacing so the whole
+   hero clears the pinned console bar. No content changes. */
+@media (max-height: 860px) {
+  .topbar { padding-top: var(--s2); padding-bottom: var(--s2); }
+  .dashboard { padding-top: var(--s2); padding-bottom: var(--s2); }
+  .situation-hero { padding-top: var(--s2); padding-bottom: var(--s2); }
+  .situation-hero__headline { font-size: 15px; }
+  .situation-hero__zone, .situation-hero__confidence { margin-bottom: var(--s1); }
+  .situation-hero__section-heading { margin-bottom: 2px; }
+  .situation-hero__matters, .situation-hero__chain, .situation-hero__why { margin-bottom: var(--s1); }
+  .situation-hero__matters li { line-height: 1.2; }
+  .chain-step { line-height: 1.12; }
+  .chain-step__icon { font-size: 12px; }
+  .situation-hero__why { gap: 1px; }
+  .situation-hero__why li { line-height: 1.15; }
+  .situation-hero__why-detail, .situation-hero__prediction-reason, .situation-hero__terrain { font-size: 11px; line-height: 1.2; }
+  .situation-hero__terrain { margin-bottom: var(--s1); }
+  .situation-hero__actions { margin-top: var(--s1); }
+}
+
 /* status-block is kept in the DOM for js/city.js / js/statusblock.js to
    render into (unchanged), but its information now lives in #city-health —
    [hidden] needs the higher specificity below to win over the

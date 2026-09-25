@@ -133,6 +133,29 @@ Until you run this, `/data` is empty and the backend serves an empty snapshot â€
 returns `{"error":"not_ready", ...}` by design, and the UI shows an empty state rather
 than an error.
 
+### (c.2) Run the pipeline â€” required before the demo
+
+`sim.generate` only writes the raw feeds. The replay also needs the cleaned events, the
+anomalies and the linked situations, or the city stays empty all evening. Run these in
+order, then (re)start the backend so it loads them:
+
+```bash
+cd backend
+python -m sim.generate     # raw feeds        -> "all six checks passed"
+python -m ingest.run       # cleaned events   -> "wrote 4545 canonical events"
+python -m engine.run       # anomalies        -> "wrote 170 anomalies"
+python -m engine.linker    # situations       -> "21 episodes -> 3 situations, 30 rejected candidates"
+uvicorn main:app --port 8000   # startup log: "4545 events, 170 anomalies, 3 situations, 30 rejected"
+python -m api.verify_api   # in a second terminal, backend running: "All checks passed." (7/7)
+```
+
+If the backend's startup log says `0 events` or `0 situations`, it was started before the
+pipeline finished: stop it and start it again.
+
+The 3D terrain assets in `frontend/assets/terrain/` are committed, so they need no step
+here. `tools/terrain/build_terrain.py` regenerates them from real elevation tiles if ever
+needed.
+
 To start over, delete the folder contents and regenerate; nothing in `/data` is precious.
 
 ```bash

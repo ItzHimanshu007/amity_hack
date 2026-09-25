@@ -14,9 +14,6 @@
 </head>
 <body>
 
-<!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
-<div id="simulated-banner"><!-- "Simulated data" marker --></div>
-
 <!-- Phase 1 redesign: top bar. Brand, live/clock status, subtle nav between
      the four views below. js/dashboard.js drives #topbar-live-dot,
      #topbar-live-text and #topbar-clock from the same WS tick stream every
@@ -30,6 +27,8 @@
     <span class="topbar__live-dot" id="topbar-live-dot"></span>
     <span class="topbar__live-text" id="topbar-live-text">Connecting…</span>
     <span class="topbar__clock data" id="topbar-clock">--:--:-- IST</span>
+    <!-- Always visible while any event has is_simulated: true. See CONTRACT.md H. -->
+    <span id="simulated-banner"></span>
   </div>
   <nav class="topbar__nav" id="topbar-nav">
     <button type="button" class="topbar__nav-item is-active" data-view="map">Live map</button>
