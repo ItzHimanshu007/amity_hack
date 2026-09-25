@@ -1817,3 +1817,78 @@ body {
 .situation-summary__updated { font-size: var(--label-size); color: var(--dhool); margin: 0 0 var(--s2); }
 .situation-summary__empty { color: var(--dhool); }
 .situation-list__heading { font-size: var(--label-size); color: var(--dhool); margin: 0; }
+
+/* ------------------------------------------ live situations: hide / pill */
+
+.situation-others__head-row { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s2); margin: 0 0 var(--s2); }
+.situation-others__head-row .situation-others__head { margin: 0; }
+.situation-others__hide {
+  appearance: none;
+  font: inherit;
+  font-size: 12.5px;
+  padding: 2px 8px;
+  border: 1px solid var(--rekha);
+  border-radius: var(--radius-chip);
+  background: var(--control);
+  color: var(--dhool);
+  cursor: pointer;
+}
+.situation-others__hide:hover { color: var(--syahi); border-color: var(--neel); }
+.situation-others.is-collapsed { width: auto; padding: 0; border: none; background: none; overflow: visible; }
+.situation-others__pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 6px var(--s3);
+  border: 1px solid var(--rekha);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--kagaz) 94%, transparent);
+  color: var(--syahi);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.situation-others__pill:hover { border-color: var(--neel); }
+.situation-others__pill .situation-others__dot { margin-top: 0; }
+.situation-others__pill--yellow .situation-others__dot { background: var(--yellow); }
+.situation-others__pill--orange .situation-others__dot { background: var(--orange); }
+.situation-others__pill--red .situation-others__dot { background: var(--red); }
+
+/* --------------------------------------- simulation console: left drawer */
+/* Open, the console becomes a drawer over the left column (City health, Feeds,
+   proof) instead of a sheet over the map. The dashboard's first column widens
+   to the drawer's width, so the drawer sits exactly in that space: the map and
+   the hero are never covered. The bottom bar stays as the drawer's handle. */
+
+:root { --drawer-w: 372px; --drawer-top: 58px; --console-bar-h: 44px; }
+.sim-console[open] .sim-console__body {
+  position: fixed;
+  left: 0;
+  top: var(--drawer-top);
+  bottom: var(--console-bar-h);
+  width: var(--drawer-w);
+  max-height: none;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 0 var(--s4) var(--s3);
+  background: var(--kagaz);
+  border-right: 1px solid var(--rekha);
+  z-index: 30;
+}
+.sim-console[open] .sim-console__summary { border-bottom: none; }
+.sim-console[open] #sim-controls.cc { grid-template-columns: minmax(0, 1fr); }
+.sim-console[open] .cc__col,
+.sim-console[open] .cc__col:nth-child(3) { flex-direction: column; grid-column: auto; }
+.sim-console[open] .cc__col + .cc__col { border-left: none; border-top: 1px solid var(--rekha); }
+.sim-console[open] .cc__col > .cc-section,
+.sim-console[open] .cc__col:nth-child(3) > .cc-section { padding-left: 0; padding-right: 0; }
+.sim-console[open] .cc__col:nth-child(3) > .cc-section + .cc-section { border-left: none; border-top: 1px solid var(--rekha); padding-left: 0; }
+.sim-console[open] .cc-markers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.sim-console[open] .cc-section__sub { display: none; }
+.sim-console[open] .cc-section__head { flex-wrap: wrap; }
+
+body.console-open .dashboard { grid-template-columns: calc(var(--drawer-w) - var(--s5)) 1fr 430px; }
+body.console-open .dashboard__left { visibility: hidden; }

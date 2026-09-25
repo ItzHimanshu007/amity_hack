@@ -145,6 +145,27 @@ function initSimConsole() {
     if (el.open) requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
   });
   resizeOnOpen(details);
+  // Open, the console is a drawer over the left column (css: body.console-open).
+  // Its top and bottom follow the real top bar / warning banner / console bar.
+  const place = () => {
+    const top = document.getElementById("data-warning");
+    const bar = document.querySelector(".topbar");
+    const edge = top && !top.hidden ? top.getBoundingClientRect().bottom : (bar ? bar.getBoundingClientRect().bottom : 58);
+    const summary = details.querySelector(".sim-console__summary");
+    document.documentElement.style.setProperty("--drawer-top", `${Math.round(edge)}px`);
+    if (summary) {
+      const fromBottom = window.innerHeight - summary.getBoundingClientRect().top;
+      document.documentElement.style.setProperty("--console-bar-h", `${Math.max(0, Math.round(fromBottom))}px`);
+    }
+  };
+  details.addEventListener("toggle", () => {
+    place();
+    requestAnimationFrame(place);   // the bar settles after the class change
+    document.body.classList.toggle("console-open", details.open);
+    // The map follows its container, but give MapLibre and the Naadi strip a nudge.
+    requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+  });
+  window.addEventListener("resize", place);
   const trace = document.getElementById("sim-console-trace");
   if (trace) resizeOnOpen(trace);
 }
@@ -403,6 +424,16 @@ function predictionList(predictedNext) {
 // it the hero (until another is picked) and flies the map to it.
 let pinnedHeroId = null;
 
+const OTHERS_KEY = "nagarnaadi.situationsListCollapsed";
+let othersCollapsed = (() => {
+  try { return localStorage.getItem(OTHERS_KEY) === "1"; } catch { return false; }
+})();
+function setOthersCollapsed(collapsed, hero) {
+  othersCollapsed = collapsed;
+  try { localStorage.setItem(OTHERS_KEY, collapsed ? "1" : "0"); } catch { /* private mode */ }
+  renderOthers(hero);
+}
+
 function renderOthers(hero) {
   const el = document.getElementById("situation-others");
   if (!el) return;
@@ -413,10 +444,38 @@ function renderOthers(hero) {
   el.innerHTML = "";
   el.hidden = others.length === 0;
   if (!others.length) return;
+  const title = `Live situations · ${others.length} ${others.length === 1 ? "area" : "areas"}`;
+  el.classList.toggle("is-collapsed", othersCollapsed);
+  if (othersCollapsed) {
+    // Collapsed: a pill in the same corner, still saying how many and how bad.
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.className = `situation-others__pill situation-others__pill--${others[0].alert_level}`;
+    pill.setAttribute("aria-expanded", "false");
+    pill.title = "Show the list of live situations";
+    const dot = document.createElement("span");
+    dot.className = "situation-others__dot";
+    pill.appendChild(dot);
+    pill.appendChild(document.createTextNode(`${title} ▸`));
+    pill.addEventListener("click", () => setOthersCollapsed(false, hero));
+    el.appendChild(pill);
+    return;
+  }
+  const headRow = document.createElement("div");
+  headRow.className = "situation-others__head-row";
   const head = document.createElement("p");
   head.className = "situation-others__head label";
-  head.textContent = `Live situations · ${others.length} ${others.length === 1 ? "area" : "areas"}`;
-  el.appendChild(head);
+  head.textContent = title;
+  const hide = document.createElement("button");
+  hide.type = "button";
+  hide.className = "situation-others__hide";
+  hide.textContent = "Hide";
+  hide.setAttribute("aria-expanded", "true");
+  hide.title = "Hide this list (it stays one click away)";
+  hide.addEventListener("click", () => setOthersCollapsed(true, hero));
+  headRow.appendChild(head);
+  headRow.appendChild(hide);
+  el.appendChild(headRow);
   const list = document.createElement("ul");
   list.className = "situation-others__list";
   for (const sit of others) {
@@ -759,12 +818,7 @@ function onSituation(situation) {
   heroChangeIsLive = false;
 }
 
-async function init() {
-  initTopbar();
-  initSimConsole();
-  renderFeedHealthCompact();
-  renderHeroEmpty();
-
+async function loadDashboardSnapshot() {
   try {
     const state = await fetchState();
     for (const row of state.feed_health || []) feedHealthById.set(row.feed, row);
@@ -780,6 +834,23 @@ async function init() {
   } catch (err) {
     renderCityHealth({ pulse_score: 0, alert_level: "green" });
   }
+}
+
+async function init() {
+  initTopbar();
+  initSimConsole();
+  renderFeedHealthCompact();
+  renderHeroEmpty();
+
+  await loadDashboardSnapshot();
+  // The replay jumped backwards: forget the situations it hasn't reached yet.
+  window.addEventListener("sim:rewound", async () => {
+    situationsById.clear();
+    pinnedHeroId = null;
+    lastHeroId = null;
+    lastRejectedFetch = { at: 0, sim: null };
+    await loadDashboardSnapshot();
+  });
 
   fetchTerrain().then((t) => { terrain = t; renderHero(); });
   fetchFlood().then((d) => { flood = d; floodFrame = floodFrameIndex(d, lastTick.sim_time_utc); renderHero(); });

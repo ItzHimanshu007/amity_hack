@@ -60,7 +60,16 @@ On data honesty, say exactly this. Never say "nothing on screen is made up".
    console.
 
 To reset between rehearsals: Simulation console → **Load storm scenario** (back to 5:30 PM),
-then steps 4–5 again.
+then step 4 again. No reload is needed: when the replay jumps back, the page clears every
+situation it hasn't reached yet, and the 3D reveal plays again.
+
+**Layout notes:**
+- The **Simulation console** opens as a drawer over the left column (City health, Feeds,
+  proof). The map and the hero stay fully visible. Close it to see the left column again.
+- **Live situations** on the map has a **Hide** button; it collapses to a small
+  "Live situations · N ▸" pill, and the page remembers the choice.
+- Hexagons are coloured only for situations the replay has reached. They appear one by
+  one, in time order, as each situation forms.
 
 ## The script (about 3 minutes)
 

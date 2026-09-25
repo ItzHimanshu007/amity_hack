@@ -150,6 +150,21 @@ function dispatch(kind, ...args) {
   }
 }
 
+// The backend sends nothing when the replay jumps BACKWARDS (a marker, or "Load
+// storm scenario"): every module would keep the situations it had already seen.
+// Watch the replay clock here, once for the page, and announce a rewind so each
+// module can rebuild itself from /state. Forward jumps need nothing: the backend
+// pushes everything that became visible in the gap.
+let lastSimMs = null;
+function noteSimTime(iso) {
+  const ms = iso ? Date.parse(iso) : NaN;
+  if (Number.isNaN(ms)) return;
+  const rewound = lastSimMs != null && ms < lastSimMs - 1000;
+  lastSimMs = ms;
+  if (rewound) window.dispatchEvent(new CustomEvent("sim:rewound", { detail: { sim_time_utc: iso } }));
+}
+window.addEventListener("sim:status", (ev) => noteSimTime(ev.detail && ev.detail.sim_time_utc));
+
 function armMissedTickWatch() {
   clearInterval(missedTickTimer);
   missedTickTimer = setInterval(() => {
@@ -171,6 +186,7 @@ function openSocket() {
       case "tick":
         lastTickAt = Date.now();
         window.dispatchEvent(new CustomEvent("stream:connection", { detail: { connected: true } }));
+        noteSimTime(msg.data && msg.data.sim_time_utc);
         dispatch("onTick", msg.data, msg);
         break;
       case "event":

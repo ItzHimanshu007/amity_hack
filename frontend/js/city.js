@@ -537,26 +537,6 @@ function buildStyle(palette) {
         source: "h3-cells",
         paint: { "line-color": palette.syahi, "line-width": 0.6, "line-opacity": 0.10 },
       },
-      // --- H3 layer: city activity. Every cell with events in the last hour of
-      // replay time gets a soft tint by event count, so the whole city shows
-      // life, not only the few cells inside a situation. Not a status colour. ---
-      {
-        id: "h3-activity",
-        type: "fill",
-        source: "h3-cells",
-        filter: [">", ["get", "act"], 0],
-        paint: {
-          "fill-color": palette.jal,
-          "fill-opacity": ["interpolate", ["linear"], ["get", "act"], 1, 0.10, 3, 0.20, 6, 0.32, 12, 0.42],
-        },
-      },
-      {
-        id: "h3-activity-edge",
-        type: "line",
-        source: "h3-cells",
-        filter: [">", ["get", "act"], 0],
-        paint: { "line-color": palette.jal, "line-width": 0.8, "line-opacity": 0.45 },
-      },
       // --- H3 layer: status fill (only cells with an active situation) ---
       {
         id: "h3-fill",
@@ -719,28 +699,12 @@ function computeCellRollup() {
 
 let lastRollup = new Map();
 
-// Events per cell over the last hour of replay time (activity tint).
-const ACTIVITY_WINDOW_MS = 60 * 60 * 1000;
-function computeActivity() {
-  const counts = new Map();
-  const now = simTimeUtc ? Date.parse(simTimeUtc) : null;
-  if (now == null) return counts;
-  for (const ev of eventsById.values()) {
-    const t = Date.parse(ev.start_utc);
-    if (!(t <= now && now - t <= ACTIVITY_WINDOW_MS) || !ev.h3_cell) continue;
-    counts.set(ev.h3_cell, (counts.get(ev.h3_cell) || 0) + 1);
-  }
-  return counts;
-}
-
 function renderCellFills() {
   lastRollup = computeCellRollup();
-  const activity = computeActivity();
   for (const [cellId, feature] of cellFeaturesById) {
     const info = lastRollup.get(cellId);
     feature.properties.level = info ? info.level : "none";
     feature.properties.situationId = info ? info.situationId : null;
-    feature.properties.act = activity.get(cellId) || 0;
   }
   const src = map.getSource("h3-cells");
   if (src) src.setData({ type: "FeatureCollection", features: Array.from(cellFeaturesById.values()) });
@@ -1029,30 +993,43 @@ function removeSituationVisuals(situationId) {
   }
 }
 
+async function loadSnapshot() {
+  try {
+    const state = await fetchState();
+    simTimeUtc = state.sim && state.sim.sim_time_utc;
+    for (const ev of state.events || []) eventsById.set(ev.event_id, ev);
+    for (const sit of state.situations || []) situationsById.set(sit.situation_id, sit);
+    renderCellFills();
+    renderEventDots();
+    updateSimulatedBanner();
+    syncFlood();
+    renderStatusBlock("#status-block", state.city.alert_level, situationsSummaryText(true));
+    for (const sit of situationsById.values()) {
+      if (sit.status === "active" && !sit.is_decoy) await renderSituationFinal(sit);
+    }
+    renderSituationBounds();
+  } catch (err) {
+    // GET /state failing (e.g. not_ready) is not fatal — the WS stream
+    // will populate things as soon as the backend has state. Show the
+    // resting/empty state rather than blanking the screen.
+    renderStatusBlock("#status-block", "green", { en: "Nothing unusual right now", hi: "" });
+  }
+}
+
 // ------------------------------------------------------------ WS handlers
-let activityBucket = null;
 function onTick(tick) {
   simTimeUtc = tick.sim_time_utc;
   syncFlood();
-  const bucket = Math.floor(Date.parse(simTimeUtc) / (5 * 60 * 1000));
-  if (bucket !== activityBucket) { activityBucket = bucket; scheduleActivity(); }
   // City-wide alert level, rendered as given — feeds the status block.
   // pulse_score is not shown here; naadi.js renders it at the strip's
   // right edge from this same tick message (tick.city_pulse_score).
   renderStatusBlock("#status-block", tick.city_alert_level, situationsSummaryText(true));
 }
 
-let activityTimer = null;
-function scheduleActivity() {
-  if (activityTimer) return;
-  activityTimer = setTimeout(() => { activityTimer = null; renderCellFills(); }, 1500);
-}
-
 function onEvent(event) {
   eventsById.set(event.event_id, event);
   renderEventDots();
   updateSimulatedBanner();
-  scheduleActivity();
 }
 
 function onSituation(situation, action) {
@@ -1141,7 +1118,7 @@ async function init() {
       type: "Feature",
       id: cell,
       geometry: { type: "Polygon", coordinates: [ringToLngLat(cell)] },
-      properties: { cell, level: "none", situationId: null, act: 0 },
+      properties: { cell, level: "none", situationId: null },
     }]));
 
     map.addImage("hatch-red", buildHatchImage(palette.redHatch));
@@ -1150,26 +1127,18 @@ async function init() {
     addLandmarkMarkers();
     wireClicks();
 
-    // Initial snapshot.
-    try {
-      const state = await fetchState();
-      simTimeUtc = state.sim && state.sim.sim_time_utc;
-      for (const ev of state.events || []) eventsById.set(ev.event_id, ev);
-      for (const sit of state.situations || []) situationsById.set(sit.situation_id, sit);
-      renderCellFills();
-      renderEventDots();
-      updateSimulatedBanner();
-      renderStatusBlock("#status-block", state.city.alert_level, situationsSummaryText(true));
-      for (const sit of situationsById.values()) {
-        if (sit.status === "active" && !sit.is_decoy) await renderSituationFinal(sit);
-      }
-      renderSituationBounds();
-    } catch (err) {
-      // GET /state failing (e.g. not_ready) is not fatal — the WS stream
-      // will populate things as soon as the backend has state. Show the
-      // resting/empty state rather than blanking the screen.
-      renderStatusBlock("#status-block", "green", { en: "Nothing unusual right now", hi: "" });
-    }
+    await loadSnapshot();
+    // The replay jumped backwards: drop everything the map has seen and rebuild
+    // it as of the new time, so a situation's hexagons only exist once the
+    // replay has reached it. The 3D reveal is re-armed for the replay too.
+    window.addEventListener("sim:rewound", async () => {
+      for (const id of [...situationsById.keys()]) removeSituationVisuals(id);
+      situationsById.clear();
+      eventsById.clear();
+      autoTerrainDone.clear();
+      if (inspector) inspector.remove();
+      await loadSnapshot();
+    });
 
     connectStream(onTick, onEvent, onSituation, onFeedHealth);
   });

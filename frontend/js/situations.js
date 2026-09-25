@@ -43,7 +43,7 @@ function init() {
   renderRailEmptyState();
   unrelatedEl.hidden = true;
 
-  fetchState().then((state) => {
+  const loadSnapshot = () => fetchState().then((state) => {
     for (const ev of state.events || []) eventCache.set(ev.event_id, ev);
     currentSimTimeUtc = state.sim && state.sim.sim_time_utc;
     latestRejectedCandidates = state.rejected_candidates || [];
@@ -53,6 +53,14 @@ function init() {
   }).catch((err) => {
     console.error("[situations] fetchState failed", err);
     renderRailEmptyState("Not connected to the backend yet.");
+  });
+  loadSnapshot();
+  // The replay jumped backwards: rebuild the rail as of the new time.
+  window.addEventListener("sim:rewound", () => {
+    situationsById.clear();
+    detailCache.clear();
+    eventCache.clear();
+    loadSnapshot();
   });
 
   connectStream(

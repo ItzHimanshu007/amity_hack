@@ -144,12 +144,20 @@ function init() {
   // runs its own internal 1s timer per target element for the freshness
   // line, started the first time it's invoked below.
 
-  fetchState().then((state) => {
+  const loadSnapshot = () => fetchState().then((state) => {
     for (const sit of state.situations || []) situationsById.set(sit.situation_id, sit);
     currentSimTimeUtc = state.sim && state.sim.sim_time_utc;
     renderAll(state.city, state.counts);
   }).catch((err) => {
     renderConnectingState(err);
+  });
+  loadSnapshot();
+  // The replay jumped backwards: show only what has happened by the new time.
+  window.addEventListener("sim:rewound", () => {
+    situationsById = new Map();
+    detailCache.clear();
+    recentAlerts.length = 0;
+    loadSnapshot();
   });
 
   connectStream(
