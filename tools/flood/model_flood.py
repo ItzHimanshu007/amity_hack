@@ -77,8 +77,19 @@ LANDMARK_CELLS = {
     "Jal Mahal": "883da2033dfffff", "Albert Hall Museum": "883da218b9fffff",
     "Jaipur Junction": "883da218c7fffff", "Sindhi Camp": "883da218c3fffff",
     "Vaishali Nagar": "883da21801fffff", "Malviya Nagar": "883da20a6dfffff",
-    "Mansarovar": "883da219e3fffff",
+    "Mansarovar": "883da219e3fffff", "Vidyadhar Nagar": "883da21ab9fffff",
+    "Tonk Road": "883da218a7fffff", "Jagatpura": "883da20b13fffff",
+    "Sanganer": "883da20b45fffff",
 }
+# SAMPLE population model for the water inspector -- not census data. Jaipur's walled
+# city is among India's densest cores (~40-50k/km2), the planned colonies around it
+# run ~10-20k/km2, and the fringe a few thousand. Two Gaussians around the walled city
+# plus a floor, with deterministic per-cell texture. Every place it is shown says
+# "sample estimate".
+WALLED_CITY = (26.9239, 75.8230)
+POP_CORE_KM2, POP_CORE_R_KM = 42000.0, 1.8
+POP_SUBURB_KM2, POP_SUBURB_R_KM = 13000.0, 7.5
+POP_FLOOR_KM2 = 2500.0
 # Reported waterlogging-prone places (news/civic reporting; approximate centres).
 REPORTED_HOTSPOTS = {
     "Tonk Road / SMS Hospital": (26.9040, 75.8150),
@@ -305,20 +316,63 @@ def run(z, dx, rain_at, t_start, t_end, frame_sec, on_frame):
 
 
 # ------------------------------------------------------------------- output
-def water_features(frames, peak_depth, px_to_lonlat):
-    """One square per ~34 m cell that ever reaches the display depth, carrying its
-    depth (cm) at every frame. Vector fills drape on MapLibre's 3D terrain cheaply;
-    an image source there is re-rendered every frame (measured ~2 fps)."""
-    rows, cols = np.where(peak_depth >= SHOW_DEPTH_M)
-    depth_cm = np.stack([h[rows, cols] for _t, h in frames]) * 100    # frames x cells
+def sample_population(shape, px_to_lonlat, dx):
+    """People per model cell from the SAMPLE density model above (not census data)."""
+    ny, nx = shape
+    lat0, lon0 = WALLED_CITY
+    pop = np.zeros(shape)
+    km_per_deg_lat = 111.0
+    km_per_deg_lon = 111.0 * np.cos(np.radians(lat0))
+    area_km2 = dx * dx / 1e6
+    for r in range(ny):
+        for c in range(nx):
+            lat, lon = px_to_lonlat(r, c)
+            d = np.hypot((lat - lat0) * km_per_deg_lat, (lon - lon0) * km_per_deg_lon)
+            dens = (POP_FLOOR_KM2 + POP_SUBURB_KM2 * np.exp(-(d / POP_SUBURB_R_KM) ** 2)
+                    + POP_CORE_KM2 * np.exp(-(d / POP_CORE_R_KM) ** 2))
+            texture = 0.6 + 0.8 * ((r * 7919 + c * 104729) % 1000) / 1000.0
+            pop[r, c] = dens * area_km2 * texture
+    return pop
+
+
+DISPLAY_BLOCK = 2            # the map draws 2x2-cell blocks (~68 m): same water, 1/4 the features
+DISPLAY_FROM_M = 0.03        # a block is drawn once its mean depth reaches 3 cm
+
+
+def water_features(frames, peak_depth, peak_time, px_to_lonlat, dem, pop):
+    """The modelled water as ~68 m map blocks (2x2 model cells), each carrying its
+    MEAN depth (cm) per frame -- the mean keeps block volume exact. Vector fills drape
+    on MapLibre's 3D terrain cheaply; an image source there re-renders every frame.
+
+    Per block, for the inspector: `z` mean ground elevation (m, SRTM), `p` people
+    living in it (SAMPLE estimate), `pk` frame of peak depth, `id` a grid ref.
+    `d` starts at frame `o` (leading dry frames are dropped to keep the file small)."""
+    b = DISPLAY_BLOCK
+    ny, nx = dem.shape
+    ny2, nx2 = ny // b, nx // b
+
+    def blocks(a):
+        return a[:ny2 * b, :nx2 * b].reshape(ny2, b, nx2, b).mean(axis=(1, 3))
+
+    depth = np.stack([blocks(h) for _t, h in frames])          # frames x ny2 x nx2
+    ground = blocks(dem)
+    people = blocks(pop) * b * b
+    rows, cols = np.where(depth.max(axis=0) >= DISPLAY_FROM_M)
     feats = []
-    for k, (r, c) in enumerate(zip(rows, cols)):
-        n, w = px_to_lonlat(r - 0.5, c - 0.5)
-        s_, e = px_to_lonlat(r + 0.5, c + 0.5)
+    for r, c in zip(rows, cols):
+        series = [int(round(v)) for v in depth[:, r, c] * 100]
+        first = next((i for i, v in enumerate(series) if v > 0), len(series))
+        r0, c0 = r * b, c * b
+        n, w = px_to_lonlat(r0 - 0.5, c0 - 0.5)
+        s_, e = px_to_lonlat(r0 + b - 0.5, c0 + b - 0.5)
         ring = [[round(w, 5), round(n, 5)], [round(e, 5), round(n, 5)], [round(e, 5), round(s_, 5)],
                 [round(w, 5), round(s_, 5)], [round(w, 5), round(n, 5)]]
         feats.append({"type": "Feature", "geometry": {"type": "Polygon", "coordinates": [ring]},
-                      "properties": {"d": [int(round(v)) for v in depth_cm[:, k]]}})
+                      "properties": {"o": first, "d": series[first:],
+                                     "z": round(float(ground[r, c]), 1),
+                                     "p": int(round(people[r, c])),
+                                     "pk": int(np.argmax(series)),
+                                     "id": f"JPR-{r:03d}-{c:03d}"}})
     return {"type": "FeatureCollection", "features": feats}
 
 
@@ -373,7 +427,8 @@ def write_outputs(frames, peak_depth, peak_time, stats, dem, dx, px_to_lonlat, e
         for old in frames_dir.glob("*.png"):
             old.unlink()
         frames_dir.rmdir()
-    water = water_features(frames, peak_depth, px_to_lonlat)
+    pop = sample_population(dem.shape, px_to_lonlat, dx)
+    water = water_features(frames, peak_depth, peak_time, px_to_lonlat, dem, pop)
     (OUT / "water.geojson").write_text(json.dumps(water, separators=(",", ":")))
 
     # crop to where water ever reaches the display threshold (+ margin)
@@ -395,6 +450,7 @@ def write_outputs(frames, peak_depth, peak_time, stats, dem, dx, px_to_lonlat, e
             "wet_area_km2": round(float(wet.sum()) * dx * dx / 1e6, 3),
             "max_depth_cm": round(float(h.max()) * 100, 1),
             "volume_m3": round(float(h.sum()) * dx * dx),
+            "people_over_10cm_sample": int(round(float(pop[h >= 0.10].sum()))),
         })
 
     # per-H3-area state at every frame, so the UI can describe the model as of
@@ -419,10 +475,12 @@ def write_outputs(frames, peak_depth, peak_time, stats, dem, dx, px_to_lonlat, e
         "model": "local inertial shallow-water (LISFLOOD-FP style; Bates et al. 2010)",
         "rain_source": "this replay's weather_imd gauges (data/raw_weather_imd.jsonl), inverse-distance interpolated",
         "terrain_source": "AWS Terrarium / SRTM elevation, frontend/assets/terrain (z13, downsampled)",
-        "params": {"cell_m": round(dx, 1), "smooth_sigma_cells": SMOOTH_SIGMA_CELLS, "noise_pit_fill_m": NOISE_PIT_M, "manning_n": MANNING_N, "drain_mm_h": DRAIN_MM_H,
+        "params": {"cell_m": round(dx, 1), "display_block_m": round(dx * DISPLAY_BLOCK, 1),
+                   "display_from_cm": DISPLAY_FROM_M * 100, "smooth_sigma_cells": SMOOTH_SIGMA_CELLS, "noise_pit_fill_m": NOISE_PIT_M, "manning_n": MANNING_N, "drain_mm_h": DRAIN_MM_H,
                    "infiltration_mm_h": INFILTRATION_MM_H, "show_from_cm": SHOW_DEPTH_M * 100,
                    "frame_sec": FRAME_SEC},
         "caveat_en": "Indicative model of where this replay's rain would collect on real terrain. Not a forecast.",
+        "population_note_en": "Population per cell is a SAMPLE estimate from a simple density model (dense walled city, colonies, fringe), not census data.",
         "mass_balance": stats,
         "bounds": coords,
         "water_cells": len(water["features"]),

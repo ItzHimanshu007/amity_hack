@@ -11,16 +11,15 @@ changes a link, a confidence level or the scorecard, and it is not a forecast.
 | Input | Source |
 |---|---|
 | Elevation | SRTM via AWS Terrarium tiles, committed in `frontend/assets/terrain/` (zoom 13, downsampled to ~34 m cells) |
-| Rain | This replay's `weather_imd` feed (`data/raw_weather_imd.jsonl`), the same six gauges NagarNaadi ingests; inverse-distance interpolated (power 2) |
+| Rain | This replay's `weather_imd` feed (`data/raw_weather_imd.jsonl`): the same 13 gauges NagarNaadi ingests, one per landmark plus the city centre; inverse-distance interpolated (power 2) |
 
-In the `monsoon_evening` replay only gauge **IMD-JAI-06** (next to Jaipur Junction) records
-rain:
-- a cloudburst from 6:30 to 7:15 PM;
-- a peak of 26 mm per 15 min (about 100 mm/h);
-- about 56 mm in total.
+In the `monsoon_evening` replay a storm cell crosses the city from the west, 6:00–8:05 PM:
+- **heavy cores** (19–28 mm per 15 min at peak, about 75–110 mm/h) over Mansarovar, Tonk
+  Road, Sindhi Camp / Jaipur Junction, Sanganer and Jagatpura, 45–55 minutes each;
+- **light rain** (2.4–3.3 mm per 15 min, about 10–13 mm/h) over the rest of the city.
 
-The other five gauges stay dry, so the storm is a small, intense cell. That is a realistic
-pattern for a Jaipur monsoon evening.
+12 of the 13 gauges record rain. That is a realistic pattern for a heavy Jaipur monsoon
+evening: intense convective cells embedded in wider moderate rain.
 
 ## Method
 
@@ -54,15 +53,50 @@ h  ← h + Δt·(rain − losses) + Δt·(inflow − outflow)/Δx
 
 | Replay time | Modelled water |
 |---|---|
-| 6:40 PM | First standing water, 10 min after the rain starts |
-| 7:05 PM | Peak: 1.16 km² over 2 cm, about 109,000 m³ standing |
-| 7:30 PM | 0.92 km²; the Jaipur Junction and Sindhi Camp areas each have about 5% of their ground over 10 cm, deepest point about 15 cm |
-| 8:30 PM | 0.47 km² still waterlogged (drains remove only 15 mm/h) |
+| 6:30 PM | First standing water, in the west (Mansarovar core) |
+| 7:15–7:20 PM | Peak volume: about 4.9 million m³ standing |
+| 7:30 PM | 52 km² under 2 cm or more; about 4.35 million m³; deepest point 1.2 m (a closed basin) |
+| 8:30 PM | 19.7 km² still under 2 cm or more (drains remove only 15 mm/h) |
 
-- Water runs along the terrain's drainage lines and collects in the low parts of the storm area.
-- Jaipur Junction lies on one of those lines.
-- This agrees with the terrain line in the hero: terrain only *partly* explains the reported
-  waterlogging.
+Per area, at peak:
+
+| Area | Deepest | Share of area over 10 cm |
+|---|---|---|
+| Jaipur Junction | 22 cm | 9% |
+| Sindhi Camp | 19 cm | 6% |
+| Mansarovar | 84 cm | 8% |
+| Tonk Road | 17 cm | 2% |
+| Jagatpura | 52 cm | 2% |
+| Sanganer | 143 cm | 8% |
+
+- Water runs along the terrain's drainage lines and collects in low ground across the city.
+- The deep values are closed low spots (a basin, a railway cutting) at 30 m resolution: read
+  them as "water pools here", not as a measured depth.
+- Mass balance error: **0.00 %** (33 million m³ of rain: drained, infiltrated, left the domain,
+  or still standing).
+
+### What the map and inspector show
+
+- **Map blocks.** The model runs on ~34 m cells. The map draws ~68 m blocks (2×2 cells,
+  mean depth, so volumes are exact) from 3 cm up: 7,727 blocks across the evening.
+- **3D.** Each block is a column whose height is its depth ×30, so shallow city-wide water
+  is visible at city scale. The legend says so.
+- **Inspector.** Clicking a block shows:
+  - grid reference;
+  - ground elevation (SRTM, m);
+  - depth now and deepest so far;
+  - water-surface elevation;
+  - water collected (depth × block area, m³);
+  - people living in the block.
+- **Population is a SAMPLE ESTIMATE**, not census data. It comes from a simple density
+  model:
+  - about 42,000/km² at the walled city (Hawa Mahal), falling off over about 2 km;
+  - about 13,000/km² across the planned colonies, falling off over about 7.5 km;
+  - a 2,500/km² floor;
+  - a fixed per-cell texture.
+
+  The summary's "people where water is over 10 cm" uses the same model and is labelled a
+  sample estimate everywhere it appears.
 
 ## Sanity check against reported Jaipur hotspots
 
@@ -95,20 +129,23 @@ Jawahar Nagar's problems are likely drainage-related, which a 30 m elevation mod
 - **The drain network is a uniform sink**, not modelled pipes; blocked drains would make things
   worse than shown.
 - **Uniform infiltration.** There is no land-cover map, so it's the same everywhere.
-- **Rain comes from six gauges.** Between gauges it's interpolated, not observed.
+- **Rain comes from 13 gauges.** Between gauges it's interpolated, not observed; with inverse
+  distance weighting a heavy core influences a wide area around it.
+- **Population is a sample estimate** from a density model, not census data.
 - **The civic feeds are synthetic.** So this is "where *this replay's* rain would go on *real*
   Jaipur terrain", not a statement about any real evening.
 
 ## Regenerating
 
 ```bash
-backend/.venv/bin/python tools/flood/model_flood.py           # replay storm, about 2 min
-backend/.venv/bin/python tools/flood/model_flood.py --check   # + hotspot check, about 7 min
+backend/.venv/bin/python tools/flood/model_flood.py           # replay storm, about 3 min
+backend/.venv/bin/python tools/flood/model_flood.py --check   # + hotspot check, about 8 min
 ```
 
 It writes two files, both committed:
-- `frontend/assets/flood/water.geojson`: every cell that is ever wet, as a vector square carrying
-  its depth (cm) for each 5-minute frame. The map draws it on the 3D terrain and picks the
+- `frontend/assets/flood/water.geojson`: every ~68 m block that ever reaches 3 cm, as a vector
+  square carrying its depth (cm) for each 5-minute frame (`d`, starting at frame `o`), its
+  ground elevation `z`, sample population `p` and a grid reference `id`. The map picks the
   frame that matches the replay clock.
 - `frontend/assets/flood/flood.json`: the per-frame summary, per-area numbers for the hero's
   "Rain model" line, the parameters and the hotspot check. The model has no random elements; the hotspot check's random baseline uses a
