@@ -21,13 +21,14 @@
 :root {
   color-scheme: dark;
 
-  /* --- status-neutral palette: dark control-room (the demo default) --- */
-  --chuna: #0A111E;   /* page background: deep navy */
-  --kagaz: #111B2C;   /* panel/card surface: one step lighter than --chuna.
+  /* --- status-neutral palette: dark control-room (the demo default). Neutral
+     graphite, not navy: blue is reserved for interaction (--neel) and water (--jal). --- */
+  --chuna: #0F1012;   /* page background: near-black graphite */
+  --kagaz: #17181B;   /* panel/card surface: one step lighter than --chuna.
                          Depth comes from this surface + a --rekha border. */
-  --syahi: #E7EEF7;   /* ink: text, ECG trace, hex outlines (15:1 on --kagaz) */
-  --dhool: #9EB1C7;   /* secondary text (7.6:1 on --kagaz) */
-  --rekha: #23324A;   /* borders, dividers, ECG grid */
+  --syahi: #ECEDEF;   /* ink: text, ECG trace, hex outlines (15:1 on --kagaz) */
+  --dhool: #A4A8B0;   /* secondary text (7.5:1 on --kagaz) */
+  --rekha: #2A2C31;   /* borders, dividers, ECG grid */
   --neel:  #4C8DFF;   /* interactive / selected ONLY — never a status */
 
   /* --- IMD four-level alert. Status only. Never decorative. --- */
@@ -58,8 +59,8 @@
   --red-surface:    color-mix(in srgb, var(--red)    11%, var(--kagaz));
 
   /* Control surfaces (buttons, inputs) one step above the panel. */
-  --control: #182538;
-  --control-hover: #1F3048;
+  --control: #1F2125;
+  --control-hover: #272A2F;
 
   /* --- type --- */
   --font: "Anek Devanagari", system-ui, sans-serif;

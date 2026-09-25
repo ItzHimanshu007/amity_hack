@@ -28,7 +28,7 @@ from typing import Optional
 from copy import deepcopy
 
 from contract_constants import (
-    FEEDS, ACTIVE_WINDOW_SEC, PULSE_THRESHOLDS,
+    FEEDS, CATEGORIES, ACTIVE_WINDOW_SEC, PULSE_THRESHOLDS,
     alert_level_for, CONFIDENCE_ORDER,
     CHAOS_CONFIDENCE_PENALTY, CHAOS_PULSE_PENALTY,
 )
@@ -45,6 +45,35 @@ def _parse_utc(s: str) -> datetime:
 
 def _iso(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+_IST = timedelta(hours=5, minutes=30)
+
+
+def _raw_identity(feed_id: str, rec: dict):
+    """(raw_ref, entity_ref, t_utc) for one JSON raw record, using the same raw_ref
+    grammar ingest uses (CONTRACT.md §A). Display-only: nothing downstream reads it."""
+    try:
+        if feed_id == "weather_imd":
+            ent = f"weather_imd:{rec['station_id']}@"
+            t = datetime.fromtimestamp(int(rec["ts"]), timezone.utc)
+            return f"{ent}{int(rec['ts'])}", ent, _iso(t)
+        if feed_id == "air_sensors":
+            ent = f"air_sensors:{rec['sensor']}@"
+            return f"{ent}{rec['captured']}", ent, rec["captured"]
+        if feed_id == "power_discom":
+            ent = f"power_discom:{rec['feeder_id']}@"
+            t = datetime.strptime(rec["reported_time"], "%Y-%m-%dT%H:%M:%S").replace(
+                tzinfo=timezone.utc) - _IST
+            return f"{ent}{int(t.timestamp())}", ent, _iso(t)
+        if feed_id == "drain_scada":
+            ent = f"drain_scada:{rec['rtu']}@"
+            t = datetime.strptime(rec["polled"], "%d/%m/%Y %H:%M").replace(
+                tzinfo=timezone.utc) - _IST
+            return f"{ent}{int(t.timestamp())}", ent, _iso(t)
+    except (KeyError, ValueError, TypeError):
+        pass
+    return "", "", None
 
 
 class TimelineStore:
@@ -79,6 +108,10 @@ class TimelineStore:
         self.delayed_feeds: dict = {}  # feed_id -> delay_seconds
         self.confidence_overrides: dict = {}  # situation_id -> {original, reason}
 
+        # Non-null when /data was produced by an older version of the pipeline than
+        # this code (e.g. `git pull` without re-running it). Served in /state.
+        self.data_warning: Optional[str] = None
+
     def load(self):
         """Load all precomputed data once at startup."""
         self._load_events()
@@ -87,6 +120,35 @@ class TimelineStore:
         self._load_rejected()
         self._load_ground_truth()
         self._load_raw_feeds()
+        self.data_warning = self._check_data_matches_code()
+
+    PIPELINE_HINT = ("re-run the pipeline from backend/: python -m sim.generate && "
+                     "python -m ingest.run && python -m engine.run && python -m engine.linker, "
+                     "then restart the backend")
+
+    def _check_data_matches_code(self) -> Optional[str]:
+        """Catch /data left over from an older version of the code. Serving it anyway
+        gives a quietly wrong demo (wrong situations, a stale scorecard), so say so."""
+        problems = []
+        missing = [spec["file"] for spec in FEEDS.values()
+                   if not (self.data_dir / spec["file"]).exists()]
+        if missing:
+            problems.append(f"missing raw feed file(s): {', '.join(missing)}")
+        known = set(CATEGORIES)
+        unknown = sorted({e["category"] for e in self.events if e.get("category") not in known}
+                         | {st["category"] for s in self.situations for st in s.get("chain", [])
+                            if st.get("category") not in known})
+        if unknown:
+            problems.append(f"categories this code no longer knows: {', '.join(unknown)}")
+        raw_times = [(self.data_dir / spec["file"]).stat().st_mtime for spec in FEEDS.values()
+                     if (self.data_dir / spec["file"]).exists()]
+        derived = self.data_dir / "situations.jsonl"
+        if raw_times and derived.exists() and derived.stat().st_mtime < max(raw_times):
+            problems.append("situations.jsonl is older than the raw feeds (pipeline not finished)")
+        if not problems:
+            return None
+        return "Data is out of date for this code: " + "; ".join(problems) + ". " + \
+            self.PIPELINE_HINT[0].upper() + self.PIPELINE_HINT[1:] + "."
 
     def _load_jsonl(self, filename: str) -> list:
         path = self.data_dir / filename
@@ -218,8 +280,14 @@ class TimelineStore:
                     continue
                 try:
                     obj = json.loads(line)
+                    ref, entity_ref, t_utc = _raw_identity(feed_id, obj)
                     records.append({
                         "raw": obj,
+                        "raw_ref": ref,
+                        # Every record of one sensor/station/feeder shares this prefix, so
+                        # the Data room can show which event a mid-episode reading folded into.
+                        "entity_ref": entity_ref,
+                        "t_utc": t_utc,
                         "parsed_ok": True,
                         "reason": None,
                     })
@@ -229,6 +297,9 @@ class TimelineStore:
                         "parsed_ok": False,
                         "reason": "Invalid JSON",
                     })
+        # Time order across all stations/sensors (the file is grouped by entity), so
+        # "the latest N records as of the replay clock" means what it says.
+        records.sort(key=lambda r: r.get("t_utc") or "")
         self.raw_feeds[feed_id] = records
 
     # ------------------------------------------------------------------ as-of queries

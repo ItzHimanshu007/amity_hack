@@ -180,8 +180,24 @@ function renderCityHealth(city) {
 
   const sub = document.createElement("p");
   sub.className = "city-health__sub label";
-  sub.textContent = "Jaipur · Live simulation";
+  const activeCount = [...situationsById.values()].filter((s) => !s.is_decoy && s.status === "active").length;
+  if (!city.pulse_score && !activeCount) {
+    // A bare "0 Good" reads like a broken counter; say what it means.
+    const when = lastTick.sim_time_utc ? ` at ${toISTClock(lastTick.sim_time_utc)}` : "";
+    sub.textContent = `No linked situations yet${when} · press Play in the Simulation console`;
+  } else {
+    sub.textContent = `Jaipur · ${activeCount} live ${activeCount === 1 ? "situation" : "situations"}`;
+  }
   el.appendChild(sub);
+}
+
+// /data left over from an older version of the code serves a quietly wrong demo.
+// The backend detects it; say so in red rather than show stale numbers.
+function renderDataWarning(text) {
+  const el = document.getElementById("data-warning");
+  if (!el) return;
+  el.hidden = !text;
+  el.textContent = text ? `⚠ ${text}` : "";
 }
 
 function renderFeedHealthCompact() {
@@ -756,6 +772,8 @@ async function init() {
     rejectedCandidates = state.rejected_candidates || [];
     lastRejectedFetch = { at: Date.now(), sim: state.sim && state.sim.sim_time_utc };
     renderFeedHealthCompact();
+    renderDataWarning(state.data_warning);
+    if (state.sim) lastTick = { ...lastTick, sim_time_utc: state.sim.sim_time_utc, state: state.sim.state };
     renderCityHealth(state.city);
     renderHero();
     if (state.sim) { lastTick = { sim_time_utc: state.sim.sim_time_utc, state: state.sim.state }; renderTopbarStatus(); }

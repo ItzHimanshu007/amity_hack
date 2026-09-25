@@ -166,11 +166,11 @@ let lastRawResponse = null;
 async function loadFeedPane(feed) {
   const panes = document.getElementById("data-room-panes");
   if (!panes) return;
-  panes.innerHTML = `<p class="data-room__loading">Loading…</p>`;
+  panes.innerHTML = `<p class="data-room__loading data-room__span">Loading…</p>`;
   try {
     lastRawResponse = await fetchRaw(feed, 50);
   } catch (err) {
-    panes.innerHTML = `<p class="data-room__loading">Could not load ${feed} (${err.message}).</p>`;
+    panes.innerHTML = `<p class="data-room__loading data-room__span">Could not load ${feed} (${err.message}).</p>`;
     return;
   }
   renderPanes();
@@ -180,47 +180,51 @@ function refreshNormalizedColumn() {
   if (lastRawResponse && lastRawResponse.feed === activeFeed) renderPanes();
 }
 
+// One grid, one row per record: the original and its cleaned result sit side by side
+// and share a row height, so a long raw record never pushes the columns out of step.
 function renderPanes() {
   const panes = document.getElementById("data-room-panes");
   if (!panes || !lastRawResponse) return;
   panes.innerHTML = "";
 
-  const rawCol = document.createElement("div");
-  rawCol.className = "data-room__col data-room__col--raw";
-  const rawHeading = document.createElement("h3");
-  rawHeading.textContent = "Original data";
-  rawCol.appendChild(rawHeading);
-  const rawHeadingHi = document.createElement("p");
-  rawHeadingHi.className = "data-room__col-hi";
-  rawHeadingHi.lang = "hi";
-  rawHeadingHi.textContent = "मूल डेटा";
-  rawCol.appendChild(rawHeadingHi);
-
-  const cleanCol = document.createElement("div");
-  cleanCol.className = "data-room__col data-room__col--clean";
-  const cleanHeading = document.createElement("h3");
-  cleanHeading.textContent = "Cleaned data";
-  cleanCol.appendChild(cleanHeading);
-  const cleanHeadingHi = document.createElement("p");
-  cleanHeadingHi.className = "data-room__col-hi";
-  cleanHeadingHi.lang = "hi";
-  cleanHeadingHi.textContent = "साफ़ किया गया डेटा";
-  cleanCol.appendChild(cleanHeadingHi);
-
+  const head = (en, hi, cls) => {
+    const cell = document.createElement("div");
+    cell.className = `data-room__col-head ${cls}`;
+    const h = document.createElement("h3");
+    h.textContent = en;
+    const p = document.createElement("p");
+    p.className = "data-room__col-hi";
+    p.lang = "hi";
+    p.textContent = hi;
+    cell.appendChild(h);
+    cell.appendChild(p);
+    return cell;
+  };
+  const rawHead = head("Original data", "मूल डेटा", "data-room__col-head--raw");
   if (lastRawResponse.format === "csv" && lastRawResponse.header) {
     const header = document.createElement("p");
     header.className = "data-room__csv-header";
     header.textContent = lastRawResponse.header;
-    rawCol.appendChild(header);
+    rawHead.appendChild(header);
   }
+  panes.appendChild(rawHead);
+  panes.appendChild(head("Cleaned data", "साफ़ किया गया डेटा", "data-room__col-head--clean"));
 
-  for (const record of lastRawResponse.records || []) {
-    rawCol.appendChild(buildRawRow(record));
-    cleanCol.appendChild(buildCleanRow(record));
+  const records = lastRawResponse.records || [];
+  if (!records.length) {
+    const p = document.createElement("p");
+    p.className = "data-room__loading data-room__span";
+    p.textContent = "No records from this feed have arrived yet at this point in the replay.";
+    panes.appendChild(p);
+    return;
   }
-
-  panes.appendChild(rawCol);
-  panes.appendChild(cleanCol);
+  records.forEach((record, k) => {
+    const raw = buildRawRow(record);
+    const clean = buildCleanRow(record);
+    for (const cell of [raw, clean]) cell.classList.add(k % 2 ? "is-odd" : "is-even");
+    panes.appendChild(raw);
+    panes.appendChild(clean);
+  });
 }
 
 function buildRawRow(record) {
@@ -246,13 +250,15 @@ function buildRawRow(record) {
 function buildCleanRow(record) {
   const row = document.createElement("div");
   row.className = "data-room__clean-row";
-  const matches = findMatchingEvents(record.raw_ref);
+  const matches = findMatchingEvents(record);
   if (matches.length === 0) {
     const p = document.createElement("p");
     p.className = "data-room__clean-empty";
     p.textContent = record.parsed_ok === false
       ? "Dropped — never became an event."
-      : "Not in the active window right now.";
+      : lastRawResponse.format === "json"
+        ? "Normal reading, below the event threshold."
+        : "Not an active event at this point in the replay.";
     row.appendChild(p);
     return row;
   }
@@ -272,15 +278,26 @@ function buildCleanRow(record) {
   return row;
 }
 
-function findMatchingEvents(rawRef) {
+// Exact raw_ref first (the record that opened an event). Otherwise, for sensor feeds,
+// the event from the same station/sensor/feeder whose episode covers this reading:
+// that is the event a mid-episode reading was folded into.
+function findMatchingEvents(record) {
+  const rawRef = record.raw_ref;
   if (!rawRef) return [];
   const exact = [];
   const partial = [];
+  const covering = [];
+  const t = record.t_utc ? Date.parse(record.t_utc) : null;
   for (const ev of eventCache.values()) {
     if (ev.raw_ref === rawRef) exact.push(ev);
     else if (ev.raw_ref && (ev.raw_ref.startsWith(rawRef) || rawRef.startsWith(ev.raw_ref))) partial.push(ev);
+    else if (record.entity_ref && t != null && ev.raw_ref && ev.raw_ref.startsWith(record.entity_ref)) {
+      const start = Date.parse(ev.start_utc);
+      const end = ev.end_utc ? Date.parse(ev.end_utc) : start + 60 * 60 * 1000;
+      if (start <= t && t <= end) covering.push(ev);
+    }
   }
-  return exact.length ? exact : partial;
+  return exact.length ? exact : partial.length ? partial : covering;
 }
 
 // ------------------------------------------------------------ duplicates --

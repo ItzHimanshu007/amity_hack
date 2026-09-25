@@ -111,6 +111,11 @@ async def lifespan(app: FastAPI):
     store.load()
     logger.info(f"  {len(store.events)} events, {len(store.anomalies)} anomalies, "
                 f"{len(store.situations)} situations, {len(store.rejected)} rejected")
+    if store.data_warning:
+        logger.warning("=" * 72)
+        logger.warning("DATA IS OUT OF DATE FOR THIS CODE")
+        logger.warning(store.data_warning)
+        logger.warning("=" * 72)
 
     gt = store.ground_truth
     scenario = gt.get("scenario", "monsoon_evening")

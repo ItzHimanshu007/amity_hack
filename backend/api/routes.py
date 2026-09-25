@@ -68,6 +68,8 @@ def get_state():
         # Additive: links the linker considered and rejected, with its reason.
         # Shown as "Probably unrelated" (DESIGN.md §7).
         "rejected_candidates": _store.revealed_rejected(sim_time),
+        # Additive: non-null when /data predates this code (see TimelineStore).
+        "data_warning": _store.data_warning,
     }
 
 
@@ -133,7 +135,11 @@ def get_raw(feed: str, n: int = Query(50, ge=1, le=500)):
     raw_records = _store.raw_feeds.get(feed, [])
     fmt = FEEDS[feed]["format"]
 
-    # Take last N, newest first
+    # Take the last N as of the replay clock, newest first: the Data room shows what had
+    # arrived by now, not the end of the file. (CSV rows carry no parsed time here.)
+    if _clock is not None and raw_records and "t_utc" in raw_records[0]:
+        cutoff = _iso(_clock.now())
+        raw_records = [r for r in raw_records if r.get("t_utc") and r["t_utc"] <= cutoff]
     selected = raw_records[-n:][::-1] if len(raw_records) >= n else raw_records[::-1]
 
     # PII masking — CONTRACT.md §D.2: mask before returning
@@ -144,6 +150,8 @@ def get_raw(feed: str, n: int = Query(50, ge=1, le=500)):
 
         out = {
             "raw_ref": rec.get("raw_ref", ""),
+            "entity_ref": rec.get("entity_ref", ""),
+            "t_utc": rec.get("t_utc"),
             "received_at": rec.get("received_at", ""),
             "parsed_ok": rec.get("parsed_ok", True),
             "reason": rec.get("reason"),
