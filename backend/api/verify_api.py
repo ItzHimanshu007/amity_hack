@@ -288,7 +288,7 @@ def check_e_scorecard_consistency():
     print(f"      total detected situations: {len(situations)}")
 
     # These should match Phase 5's verify_linker output
-    ok = matched_count >= 2  # We expect at least GT-001, GT-002 to match
+    ok = matched_count >= 6  # 8 planted; allow the partial-view edge cases
     print(f"{OK if ok else FAIL} scorecard numbers consistent with Phase 5 output")
     return ok
 
@@ -337,7 +337,7 @@ def check_f_ws_shapes():
 
     # Feedhealth
     fake_health = {
-        "feed": "transit_gtfs", "state": "killed",
+        "feed": "drain_scada", "state": "killed",
         "last_record_utc": "2026-09-24T13:04:10Z", "age_sec": 950,
         "interval_sec": 30, "records_total": 1602, "records_dropped": 0,
         "message": "Stopped by operator",

@@ -138,7 +138,7 @@ Further rules:
 - **Banned words:** AI-powered, insights, smart, intelligent, leverage, seamless,
   real-time™-flavoured marketing, "harnessing", "revolutionise". We say what the thing
   does. "Three feeds reported this within 20 minutes" beats any adjective.
-- **Buttons name their exact action.** "Stop transit feed", not "Submit". "Show the
+- **Buttons name their exact action.** "Stop drain feed", not "Submit". "Show the
   original records", not "View". "Run at 8× speed", not "Speed". A button label should
   still make sense read aloud with no surrounding context.
 - Numbers get units and a reference point. "14 minutes late" not "840". "PM2.5 182 —
@@ -262,7 +262,7 @@ The one bold element. An ECG-style trace of city event rate, full width, above e
 One row per feed in CONTRACT.md §D, in a plain list — not a table with zebra stripes.
 
 - Height 44px, separated by 1px `--rekha` rules. No card, no border radius.
-- Left: feed display name at `body` ("Civic complaints", "City buses" — the friendly
+- Left: feed display name at `body` ("Civic complaints", "Storm-drain sensors" — the friendly
   name, not `civic_complaints`).
 - Middle: state as a word plus a mark, never color alone:
   - `live` — a filled 8px `--green` square and the word "Live"
@@ -270,8 +270,8 @@ One row per feed in CONTRACT.md §D, in a plain list — not a table with zebra 
   - `killed` — an 8px `--syahi` square with a diagonal strike and "Stopped"
   - `error` — an 8px `--red` hatched square and "Not readable"
 - Right: `label`-scale counts, tabular — "418 records · 11 dropped".
-- Far right: the control button, naming its exact action — "Stop transit feed" or
-  "Start transit feed". Text button, `--neel`, 1px underline, no icon.
+- Far right: the control button, naming its exact action — "Stop drain feed" or
+  "Start drain feed". Text button, `--neel`, 1px underline, no icon.
 - A feed going stale must be noticeable without animation: the row's text shifts to
   `--dhool` and the state word changes. No pulsing, no shake.
 

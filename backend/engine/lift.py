@@ -9,7 +9,7 @@ The question this answers, per plausible pair (A -> B, window W):
 
     lift = observed co-occurrences / chance-expected co-occurrences
 
-Chance is not "uniform over the 591 city cells" -- pollution sensors and bus stops are
+Chance is not "uniform over the 591 city cells" -- pollution sensors and drain gauges are
 not uniformly distributed, and pretending they are inflates every lift. The expectation
 is localized instead: for each A event, count how many B events the history holds in
 A's own 7-cell neighbourhood, and spread them uniformly over the history span. So a B
@@ -26,7 +26,7 @@ READ THIS BEFORE USING LIFT AS A GATE. Phase 1 generates the history as delibera
 stationary noise with no planted structure -- sim.verify check (e) asserts exactly that
 and fails the build otherwise. So most genuinely plausible pairs measure BELOW 1.0
 there -- 0.44 for `complaint.waterlogging -> power.outage`, 0.89 for
-`traffic.signal_down -> transit.delay`, both real legs of GT-001's own cascade. A lift
+`weather.rain -> power.outage`, both real legs of GT-001's own cascade. A lift
 threshold anywhere near 1.0 would veto legs of the headline scenario. (The one pair
 that IS structurally deterministic -- `power.outage -> traffic.signal_down`,
 CONTRACT.md §D.3's single raw record emitting both at the same instant -- measures a

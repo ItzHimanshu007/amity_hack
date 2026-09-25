@@ -10,11 +10,10 @@ frequency decides how strongly we believe this particular instance.
 Two structural facts fall out of the table and are used elsewhere:
 
   * ROOT-CAPABLE: a category with at least one outgoing edge can start something.
-    `transit.delay`, `air.pm25` and `complaint.streetlight` have none -- they are pure
-    consequences. That is what makes a lone bus-delay cluster not a "situation": buses
-    run late for a hundred reasons a civic feed cannot see (a festival crowd, a VIP
-    convoy, a broken-down truck), so claiming a situation from one is a claim we cannot
-    support. See linker.standalone_eligible.
+    `air.pm25`, `traffic.signal_down` and `complaint.streetlight` have none -- they are
+    pure consequences. A lone dark streetlight is not a "situation": lights fail for a
+    hundred reasons a civic feed cannot see, so claiming a situation from one is a claim
+    we cannot support. See linker.standalone_eligible.
 
   * TERMINAL / ISOLATED: `complaint.garbage` appears on neither side. Uncollected
     garbage is an accumulation condition measured in days, not an event with
@@ -40,10 +39,18 @@ PLAUSIBLE_PAIRS = {
         0, 120,
         "water reaching a feeder or transformer trips the circuit",
         "फीडर या ट्रांसफॉर्मर में पानी जाने से सर्किट ट्रिप होता है"),
-    ("weather.rain", "transit.delay"): (
-        0, 120,
-        "wet roads and reduced visibility slow every bus on the route",
-        "गीली सड़कों और कम दृश्यता से रूट की हर बस धीमी हो जाती है"),
+    ("weather.rain", "drain.overflow"): (
+        0, 60,
+        "a burst of rain fills the storm drains faster than they can carry it away",
+        "तेज़ बारिश नालों को उनकी क्षमता से तेज़ भर देती है"),
+    ("drain.overflow", "complaint.waterlogging"): (
+        0, 60,
+        "a surcharged drain backs up and spills onto the street",
+        "भरा हुआ नाला उफनकर सड़क पर पानी फैला देता है"),
+    ("drain.overflow", "complaint.road_damage"): (
+        0, 240,
+        "water forced out of a full drain undermines the road beside it",
+        "उफनते नाले का पानी बगल की सड़क को नीचे से खोखला कर देता है"),
     ("weather.rain", "complaint.road_damage"): (
         0, 240,
         "standing water opens up potholes that residents then report",
@@ -56,10 +63,6 @@ PLAUSIBLE_PAIRS = {
         0, 60,
         "water in a street-level substation or feeder pillar trips it",
         "सड़क के सबस्टेशन या फीडर में पानी जाने से बिजली जाती है"),
-    ("complaint.waterlogging", "transit.delay"): (
-        0, 60,
-        "a flooded stretch forces buses to crawl or divert",
-        "जलभराव वाले हिस्से में बसें रेंगती हैं या रास्ता बदलती हैं"),
     ("complaint.waterlogging", "complaint.road_damage"): (
         0, 240,
         "water under the surface breaks the road up",
@@ -72,14 +75,6 @@ PLAUSIBLE_PAIRS = {
         0, 60,
         "the same dead feeder takes the street lights with it",
         "वही बंद फीडर स्ट्रीटलाइट भी बंद कर देता है"),
-    ("traffic.signal_down", "transit.delay"): (
-        0, 45,
-        "unsignalled junctions back up and buses lose their slot",
-        "बिना सिग्नल चौराहों पर जाम लगता है और बसें पिछड़ जाती हैं"),
-    ("complaint.road_damage", "transit.delay"): (
-        0, 60,
-        "a broken carriageway slows every vehicle including buses",
-        "टूटी सड़क पर बसों समेत हर गाड़ी धीमी चलती है"),
     ("complaint.smoke", "air.pm25"): (
         0, 30,
         "burning close by pushes particulate readings up downwind",

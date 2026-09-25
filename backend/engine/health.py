@@ -1,7 +1,7 @@
 """degraded_by_stale_feeds support. CONTRACT.md §E.1.
 
 IMPORTANT LIMITATION, found while building this: canonical events cannot answer "was
-the raw feed still transmitting" for any feed except transit_gtfs. For every other feed,
+the raw feed still transmitting" for any feed that does not state its own publish time. For every feed here,
 ingest.normalize.received_at_for() sets received_at = start_utc + interval_sec
 DETERMINISTICALLY (verified: every weather_imd canonical event has freshness_sec exactly
 300, always) -- so a gap between two canonical events' received_at is just the gap

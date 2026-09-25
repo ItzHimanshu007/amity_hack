@@ -41,9 +41,9 @@ def ref_power(feeder_id: str, reported: datetime) -> str:
     return f"power_discom:{feeder_id}@{epoch(reported)}"
 
 
-def ref_transit(trip_id: str, stop_id: str) -> str:
-    """No timestamp: the id must survive the delay being revised each cycle."""
-    return f"transit_gtfs:{trip_id}@{stop_id}"
+def ref_drain(rtu_id: str, polled: datetime) -> str:
+    """The poll that first crossed the overflow floor; the episode keeps it."""
+    return f"drain_scada:{rtu_id}@{epoch(polled)}"
 
 
 def ref_complaint(complaint_id: str) -> str:

@@ -58,13 +58,8 @@ COMPLAINTS = _norm([
     1.9, 2.0, 1.7, 1.2, 0.8, 0.5,      # 18-23
 ])
 
-# Buses bunch at the two commute peaks.
-TRANSIT = _norm([
-    0.05, 0.03, 0.02, 0.02, 0.05, 0.4,
-    1.0, 1.7, 2.1, 1.8, 1.2, 1.0,
-    1.0, 1.0, 1.0, 1.1, 1.5, 2.0,
-    2.2, 1.9, 1.3, 0.8, 0.4, 0.1,
-])
+# Drains block with silt and debris at any hour; there's no daily rhythm to it.
+DRAIN = _norm([1.0] * 24)
 
 # Grid load peaks in the afternoon heat and again at dinner.
 POWER = _norm([
@@ -98,7 +93,7 @@ PROFILE_FOR = {
     "complaint.smoke": COMPLAINTS,
     "traffic.signal_down": COMPLAINTS,
     "power.outage": POWER,
-    "transit.delay": TRANSIT,
+    "drain.overflow": DRAIN,
     "air.pm25": AIR,
     "weather.rain": RAIN,
 }

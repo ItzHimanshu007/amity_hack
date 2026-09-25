@@ -2,7 +2,7 @@
 
 Three layers, in order:
   1. baseline  -- 14 days of stationary Poisson noise with a diurnal shape
-  2. planted   -- the three cascades the engine is supposed to find
+  2. planted   -- the eight cascades the engine is supposed to find
   3. decoys    -- coincidences the engine is supposed to reject
 
 CONTRACT.md §G. Nothing here knows about JSON, CSV or GTFS.
@@ -49,7 +49,7 @@ def reset_spec_counter():
 
 # ---------------------------------------------------------------- the world ---
 
-def build_world(feeder_registry: dict, stop_registry: dict, seed: int = config.SEED) -> dict:
+def build_world(feeder_registry: dict, drain_registry: dict, seed: int = config.SEED) -> dict:
     """Static per-cell character plus the sensor and station networks."""
     r = rng("world", seed)
     cells = list(bbox_cells())
@@ -64,7 +64,7 @@ def build_world(feeder_registry: dict, stop_registry: dict, seed: int = config.S
     from ingest.zones import load_landmarks
     landmarks = load_landmarks()
 
-    # Weather stations: one per landmark for the first N. Station 03 sits at the city
+    # Weather stations: one per landmark (Jal Mahal's slot is the centre gauge). Station 03 sits at the city
     # centre, matching CONTRACT.md §D.1's example.
     stations = []
     centre_lat, centre_lon = 26.9124, 75.7873
@@ -74,8 +74,8 @@ def build_world(feeder_registry: dict, stop_registry: dict, seed: int = config.S
             lat, lon = centre_lat, centre_lon
         else:
             lm = landmarks[i % len(landmarks)]
-            lat = round(lm["lat"] + r.gauss(0, 0.004), 5)
-            lon = round(lm["lon"] + r.gauss(0, 0.004), 5)
+            lat = round(lm["lat"] + r.gauss(0, 0.0015), 5)
+            lon = round(lm["lon"] + r.gauss(0, 0.0015), 5)
         stations.append({"station_id": sid, "lat": lat, "lon": lon, "h3_cell": cell_of(lat, lon)})
 
     # Air sensors: AQ-JPR-07 sits at Hawa Mahal, matching CONTRACT.md §D.5's example.
@@ -100,7 +100,7 @@ def build_world(feeder_registry: dict, stop_registry: dict, seed: int = config.S
         "stations": stations,
         "sensors": sensors,
         "feeders": feeder_registry,
-        "stops": stop_registry,
+        "drains": drain_registry,
     }
 
 
@@ -129,10 +129,11 @@ def _nearest_sensor(world, lat, lon):
                key=lambda s: (s["lat"] - lat) ** 2 + (s["lon"] - lon) ** 2)
 
 
-def _trip_id(route_id, dt):
-    """JCTSL-22A-1830, the shape CONTRACT.md §D.4 shows. HHMM is the IST departure."""
-    ist = dt + timedelta(hours=5, minutes=30)
-    return f"JCTSL-{route_id}-{ist.strftime('%H%M')}"
+def _drains_near(world, cell, ring=1):
+    """RTU ids within `ring` cells of this cell, nearest first."""
+    from ingest.zones import grid_distance
+    near = [(grid_distance(cell, d["h3_cell"]), rid) for rid, d in world["drains"].items()]
+    return [rid for dist, rid in sorted(near) if dist <= ring]
 
 
 # ------------------------------------------------------------- baseline noise --
@@ -184,28 +185,21 @@ def baseline_specs(world, seed: int = config.SEED) -> list:
                        "scheduled": r.random() < 0.12},
             ))
 
-    # Transit delays.
-    r = rng("baseline:transit", seed)
-    from sim.registries import ROUTES
+    # Drain overflows with no rain behind them: silt, plastic and debris choke a
+    # channel at any hour. Stationary like everything else in the history.
+    r = rng("baseline:drain", seed)
+    drain_ids = sorted(world["drains"])
     for h in range(hours):
         t0 = config.HISTORY_START + timedelta(hours=h)
-        ist_h = (t0 + timedelta(hours=5, minutes=30)).hour
-        if not (config.SERVICE_START_HOUR_IST <= ist_h < config.SERVICE_END_HOUR_IST):
-            continue
-        for _ in range(poisson(r, rate_at("transit.delay", config.BASELINE_RATES["transit.delay"], t0))):
-            route_id = r.choice([rt[0] for rt in ROUTES])
-            route_stops = [sid for sid, s in world["stops"].items() if route_id in s["routes"]]
-            if not route_stops:
-                continue
-            sid = r.choice(route_stops)
-            s = world["stops"][sid]
+        for _ in range(poisson(r, rate_at("drain.overflow", config.BASELINE_RATES["drain.overflow"], t0))):
+            rid = r.choice(drain_ids)
+            d = world["drains"][rid]
             at = t0 + timedelta(seconds=r.randrange(3600))
             specs.append(EventSpec(
-                category="transit.delay", source="transit_gtfs", start=at,
-                end=at + timedelta(minutes=r.randint(*config.TRANSIT_DELAY_MIN)),
-                lat=s["lat"], lon=s["lon"], h3_cell=s["h3_cell"],
-                measure=float(r.randint(320, 1500)), entity=sid,
-                extra={"route_id": route_id, "trip_id": _trip_id(route_id, at)},
+                category="drain.overflow", source="drain_scada", start=at,
+                end=at + timedelta(minutes=r.randint(*config.DRAIN_OVERFLOW_MIN)),
+                lat=d["lat"], lon=d["lon"], h3_cell=d["h3_cell"],
+                measure=round(r.uniform(88.0, 108.0), 1), entity=rid,
             ))
 
     # Rain episodes.
@@ -251,7 +245,15 @@ def _signal_feeder_in(world, cells, r):
 
 
 def planted_specs(world, seed: int = config.SEED):
-    """The three cascades. Times are relative to config.SIM_START."""
+    """A monsoon storm cell crossing the city, and what it sets off in eight areas.
+
+    Times are minutes after config.SIM_START (17:30 IST). The storm arrives from the
+    west: heavy cores (above the 5 mm / 15 min event floor) over the areas where a
+    cascade is planted, and light rain everywhere else -- real rain on the flood model's
+    terrain, but below the floor, so it produces no events and cannot pose as evidence.
+    Power-rooted situations start BEFORE the rain reaches them, so no rain -> power link
+    is possible there by construction.
+    """
     r = rng("planted", seed)
     S = config.SIM_START
     specs, truths = [], []
@@ -259,165 +261,162 @@ def planted_specs(world, seed: int = config.SEED):
     from ingest.zones import load_landmarks
     by_name = {lm["name"]: lm for lm in load_landmarks()}
 
-    # ---- GT-001: cloudburst at Sindhi Camp -----------------------------------
-    sc = by_name["Sindhi Camp"]
-    jj = by_name["Jaipur Junction"]
-    sc_cell, jj_cell = sc["h3_cell"], jj["h3_cell"]
-    zone = [sc_cell, jj_cell]
-    g1 = []
+    def at(m):
+        return S + timedelta(minutes=m)
 
-    st = _nearest_station(world, jj["lat"], jj["lon"])
-    g1.append(EventSpec(
-        category="weather.rain", source="weather_imd", start=S + timedelta(minutes=55),
-        end=S + timedelta(minutes=110),
-        lat=st["lat"], lon=st["lon"], h3_cell=st["h3_cell"],
-        measure=28.0, entity=st["station_id"], truth_id="GT-001"))
+    def rain(lm_name, start, dur, peak, tid=None, station=None):
+        lm = by_name[lm_name]
+        st = station or _nearest_station(world, lm["lat"], lm["lon"])
+        return EventSpec(
+            category="weather.rain", source="weather_imd", start=at(start),
+            end=at(start + dur), lat=st["lat"], lon=st["lon"], h3_cell=st["h3_cell"],
+            measure=peak, entity=st["station_id"], truth_id=tid)
 
-    wl_cells = [sc_cell, sc_cell, jj_cell, sc_cell, jj_cell]
-    for i, cell in enumerate(wl_cells):
-        lat, lon = _point_in_cell(r, cell)
-        g1.append(EventSpec(
-            category="complaint.waterlogging", source="civic_complaints",
-            start=S + timedelta(minutes=72 + i * 7),
-            lat=lat, lon=lon, h3_cell=cell, measure=float(len(wl_cells)),
-            extra={"landmark": nearest_landmark(lat, lon)["name"]}, truth_id="GT-001"))
+    def drains(lm_name, start, pct, tid, n=2, dur=70):
+        cell = by_name[lm_name]["h3_cell"]
+        out = []
+        for k, rid in enumerate(_drains_near(world, cell, 1)[:n]):
+            d = world["drains"][rid]
+            out.append(EventSpec(
+                category="drain.overflow", source="drain_scada", start=at(start + k * 10),
+                end=at(start + k * 10 + dur), lat=d["lat"], lon=d["lon"],
+                h3_cell=d["h3_cell"], measure=pct - k * 6, entity=rid, truth_id=tid))
+        return out
 
-    fid = _signal_feeder_in(world, {sc_cell}, r)
-    f = world["feeders"][fid]
-    trip_at = S + timedelta(minutes=90)
-    g1.append(EventSpec(
-        category="power.outage", source="power_discom", start=trip_at,
-        end=trip_at + timedelta(minutes=95),
-        lat=f["lat"], lon=f["lon"], h3_cell=f["h3_cell"],
-        measure=4120.0, entity=fid,
-        extra={"est_restore_min": 75, "cause": "UNKNOWN", "scheduled": False,
-               "signal_junctions": 3, "force_signals": True}, truth_id="GT-001"))
-    # Same raw record, second category, second source-independent id.
-    g1.append(EventSpec(
-        category="traffic.signal_down", source="power_discom", start=trip_at,
-        end=trip_at + timedelta(minutes=95),
-        lat=f["lat"], lon=f["lon"], h3_cell=f["h3_cell"],
-        measure=3.0, entity=fid, extra={"from_power_record": True}, truth_id="GT-001"))
-    # The corroborating resident report of the same dark junction.
-    lat, lon = _point_in_cell(r, sc_cell)
-    g1.append(EventSpec(
-        category="traffic.signal_down", source="civic_complaints",
-        start=trip_at + timedelta(minutes=8),
-        lat=lat, lon=lon, h3_cell=sc_cell, measure=1.0,
-        extra={"landmark": "Sindhi Camp"}, truth_id="GT-001"))
+    def complaints(cat, lm_name, starts, tid=None, decoy=None, cells=None):
+        out = []
+        for k, m in enumerate(starts):
+            cell = (cells or [by_name[lm_name]["h3_cell"]])[k % len(cells or [0])]
+            lat, lon = _point_in_cell(r, cell)
+            out.append(EventSpec(
+                category=cat, source="civic_complaints", start=at(m), lat=lat, lon=lon,
+                h3_cell=cell, measure=float(len(starts)),
+                extra={"landmark": nearest_landmark(lat, lon)["name"]
+                       if cells else lm_name},
+                truth_id=tid, decoy_id=decoy))
+        return out
 
-    for i, (delay, off) in enumerate([(840, 105), (1020, 112), (660, 125)]):
-        cands = [sid for sid, s in world["stops"].items()
-                 if "22A" in s["routes"] and s["h3_cell"] in zone]
-        sid = sorted(cands)[i % len(cands)] if cands else sorted(
-            s for s in world["stops"] if "22A" in world["stops"][s]["routes"])[i]
-        s = world["stops"][sid]
-        at = S + timedelta(minutes=off)
-        g1.append(EventSpec(
-            category="transit.delay", source="transit_gtfs", start=at,
-            end=at + timedelta(minutes=28),
-            lat=s["lat"], lon=s["lon"], h3_cell=s["h3_cell"],
-            measure=float(delay), entity=sid,
-            extra={"route_id": "22A", "trip_id": _trip_id("22A", at)}, truth_id="GT-001"))
+    def power_cut(lm_name, start, dur, connections, cause, junctions, tid):
+        cell = by_name[lm_name]["h3_cell"]
+        fid = (_signal_feeder_in(world, {cell}, r)
+               or _signal_feeder_in(world, set(neighbors(cell, 1)), r))
+        f = world["feeders"][fid]
+        extra = {"est_restore_min": dur - 20, "cause": cause, "scheduled": False,
+                 "signal_junctions": junctions, "force_signals": True}
+        return [
+            EventSpec(category="power.outage", source="power_discom", start=at(start),
+                      end=at(start + dur), lat=f["lat"], lon=f["lon"], h3_cell=f["h3_cell"],
+                      measure=connections, entity=fid, extra=extra, truth_id=tid),
+            # Same raw record, second category (CONTRACT.md §D.3).
+            EventSpec(category="traffic.signal_down", source="power_discom", start=at(start),
+                      end=at(start + dur), lat=f["lat"], lon=f["lon"], h3_cell=f["h3_cell"],
+                      measure=float(junctions), entity=fid,
+                      extra={"from_power_record": True}, truth_id=tid),
+        ]
 
-    specs += g1
-    truths.append({
-        "truth_id": "GT-001",
-        "label": "Cloudburst at Sindhi Camp floods the bus stand and delays route 22A",
-        "root_cause_category": "weather.rain",
-        "expected_chain": ["weather.rain", "complaint.waterlogging", "power.outage",
-                           "traffic.signal_down", "transit.delay"],
-        "expected_zone_cells": sorted({s.h3_cell for s in g1}),
-        "onset": S + timedelta(minutes=55),
-        "detect_by": S + timedelta(minutes=105),
-        "specs": g1,
-    })
+    def truth(tid, label, root, chain, group, onset, detect_after):
+        specs.extend(group)
+        truths.append({
+            "truth_id": tid, "label": label, "root_cause_category": root,
+            "expected_chain": chain,
+            "expected_zone_cells": sorted({g.h3_cell for g in group}),
+            "onset": at(onset), "detect_by": at(onset + detect_after), "specs": group,
+        })
 
-    # ---- GT-002: transformer failure, Malviya Nagar. No weather. -------------
-    mn = by_name["Malviya Nagar"]
-    mn_cell = mn["h3_cell"]
-    g2 = []
-    fid2 = _signal_feeder_in(world, {mn_cell}, r)
-    f2 = world["feeders"][fid2]
-    trip2 = S + timedelta(minutes=80)
-    g2.append(EventSpec(
-        category="power.outage", source="power_discom", start=trip2,
-        end=trip2 + timedelta(minutes=140),
-        lat=f2["lat"], lon=f2["lon"], h3_cell=f2["h3_cell"],
-        measure=5600.0, entity=fid2,
-        extra={"est_restore_min": 120, "cause": "TRANSFORMER FAILURE", "scheduled": False,
-               "signal_junctions": 4, "force_signals": True}, truth_id="GT-002"))
-    g2.append(EventSpec(
-        category="traffic.signal_down", source="power_discom", start=trip2,
-        end=trip2 + timedelta(minutes=140),
-        lat=f2["lat"], lon=f2["lon"], h3_cell=f2["h3_cell"],
-        measure=4.0, entity=fid2, extra={"from_power_record": True}, truth_id="GT-002"))
-    lat, lon = _point_in_cell(r, mn_cell)
-    g2.append(EventSpec(
-        category="traffic.signal_down", source="civic_complaints",
-        start=trip2 + timedelta(minutes=14),
-        lat=lat, lon=lon, h3_cell=mn_cell, measure=1.0,
-        extra={"landmark": "Malviya Nagar"}, truth_id="GT-002"))
+    # ---- light rain over the rest of the city: real water, no events -------------
+    heavy = {"Jaipur Junction", "Sindhi Camp", "Mansarovar", "Tonk Road", "Sanganer",
+             "Jagatpura"}
+    light_onset = {"Vaishali Nagar": 30, "Vidyadhar Nagar": 60, "Albert Hall Museum": 62,
+                   "Hawa Mahal": 66, "Malviya Nagar": 78, "Amer Fort": 84}
+    used = set()
+    for name, m in light_onset.items():
+        lm = by_name[name]
+        st = _nearest_station(world, lm["lat"], lm["lon"])
+        used.add(st["station_id"])
+        specs.append(rain(name, m, 55, round(r.uniform(2.4, 3.3), 1), station=st))
+    for st in world["stations"]:
+        near = min(by_name.values(),
+                   key=lambda lm: (lm["lat"] - st["lat"]) ** 2 + (lm["lon"] - st["lon"]) ** 2)
+        if st["station_id"] not in used and near["name"] not in heavy:
+            specs.append(EventSpec(
+                category="weather.rain", source="weather_imd", start=at(70), end=at(125),
+                lat=st["lat"], lon=st["lon"], h3_cell=st["h3_cell"],
+                measure=round(r.uniform(2.4, 3.3), 1), entity=st["station_id"]))
 
-    mn_zone = neighbors(mn_cell, 1)
-    for i, (delay, off) in enumerate([(900, 110), (1140, 118), (720, 130)]):
-        cands = sorted(sid for sid, s in world["stops"].items() if s["h3_cell"] in mn_zone)
-        if not cands:
-            cands = sorted(sid for sid, s in world["stops"].items()
-                           if "30B" in s["routes"] or "12A" in s["routes"])
-        sid = cands[i % len(cands)]
-        s = world["stops"][sid]
-        at = S + timedelta(minutes=off)
-        route_id = s["routes"][0]
-        g2.append(EventSpec(
-            category="transit.delay", source="transit_gtfs", start=at,
-            end=at + timedelta(minutes=25),
-            lat=s["lat"], lon=s["lon"], h3_cell=s["h3_cell"],
-            measure=float(delay), entity=sid,
-            extra={"route_id": route_id, "trip_id": _trip_id(route_id, at)},
-            truth_id="GT-002"))
+    # ---- GT-001: cloudburst over Sindhi Camp / Jaipur Junction ------------------
+    sc_cell = by_name["Sindhi Camp"]["h3_cell"]
+    jj_cell = by_name["Jaipur Junction"]["h3_cell"]
+    g = [rain("Jaipur Junction", 55, 55, 28.0, "GT-001"),
+         rain("Sindhi Camp", 58, 50, 24.0, "GT-001")]
+    g += drains("Sindhi Camp", 64, 124.0, "GT-001")
+    g += complaints("complaint.waterlogging", None, [72, 79, 86, 93, 100], "GT-001",
+                    cells=[sc_cell, sc_cell, jj_cell, sc_cell, jj_cell])
+    g += power_cut("Sindhi Camp", 90, 95, 4120.0, "UNKNOWN", 3, "GT-001")
+    g += complaints("traffic.signal_down", "Sindhi Camp", [98], "GT-001")
+    truth("GT-001", "Cloudburst over Sindhi Camp overflows drains, floods the bus stand "
+          "and trips a feeder that darkens signals", "weather.rain",
+          ["weather.rain", "drain.overflow", "complaint.waterlogging", "power.outage",
+           "traffic.signal_down"], g, 55, 50)
 
-    specs += g2
-    truths.append({
-        "truth_id": "GT-002",
-        "label": "Transformer failure in Malviya Nagar darkens signals and delays buses",
-        "root_cause_category": "power.outage",
-        "expected_chain": ["power.outage", "traffic.signal_down", "transit.delay"],
-        "expected_zone_cells": sorted({s.h3_cell for s in g2}),
-        "onset": trip2,
-        "detect_by": trip2 + timedelta(minutes=40),
-        "specs": g2,
-    })
+    # ---- GT-002: transformer failure, Malviya Nagar. No weather. -----------------
+    g = power_cut("Malviya Nagar", 50, 150, 5600.0, "TRANSFORMER FAILURE", 4, "GT-002")
+    g += complaints("traffic.signal_down", "Malviya Nagar", [64], "GT-002")
+    g += complaints("complaint.streetlight", "Malviya Nagar", [58, 66, 74, 81], "GT-002")
+    truth("GT-002", "Transformer failure in Malviya Nagar darkens signals and streetlights",
+          "power.outage", ["power.outage", "traffic.signal_down", "complaint.streetlight"],
+          g, 50, 40)
 
-    # ---- GT-003: garbage fire, Vaishali Nagar. Tight, two feeds, small. ------
+    # ---- GT-003: garbage fire, Vaishali Nagar. Tight, two feeds, small. ------------
     vn = by_name["Vaishali Nagar"]
-    vn_cell = vn["h3_cell"]
-    g3 = []
-    for i in range(3):
-        lat, lon = _point_in_cell(r, vn_cell)
-        g3.append(EventSpec(
-            category="complaint.smoke", source="civic_complaints",
-            start=S + timedelta(minutes=65 + i * 6),
-            lat=lat, lon=lon, h3_cell=vn_cell, measure=3.0,
-            extra={"landmark": "Vaishali Nagar"}, truth_id="GT-003"))
+    g = complaints("complaint.smoke", "Vaishali Nagar", [65, 71, 77], "GT-003")
     sn = _nearest_sensor(world, vn["lat"], vn["lon"])
-    g3.append(EventSpec(
-        category="air.pm25", source="air_sensors", start=S + timedelta(minutes=70),
-        end=S + timedelta(minutes=160),
+    g.append(EventSpec(
+        category="air.pm25", source="air_sensors", start=at(70), end=at(160),
         lat=sn["lat"], lon=sn["lon"], h3_cell=sn["h3_cell"],
         measure=120.0, entity=sn["sensor"], truth_id="GT-003"))
+    truth("GT-003", "Garbage fire in Vaishali Nagar puts smoke and PM2.5 over one area",
+          "complaint.smoke", ["complaint.smoke", "air.pm25"], g, 65, 50)
 
-    specs += g3
-    truths.append({
-        "truth_id": "GT-003",
-        "label": "Garbage fire in Vaishali Nagar puts smoke and PM2.5 over one area",
-        "root_cause_category": "complaint.smoke",
-        "expected_chain": ["complaint.smoke", "air.pm25"],
-        "expected_zone_cells": sorted({s.h3_cell for s in g3}),
-        "onset": S + timedelta(minutes=65),
-        "detect_by": S + timedelta(minutes=115),
-        "specs": g3,
-    })
+    # ---- GT-004: Mansarovar -- first core of the storm ----------------------------
+    g = [rain("Mansarovar", 40, 60, 22.0, "GT-004")]
+    g += drains("Mansarovar", 50, 118.0, "GT-004")
+    g += complaints("complaint.waterlogging", "Mansarovar", [58, 64, 71, 79], "GT-004")
+    g += complaints("complaint.road_damage", "Mansarovar", [96, 104, 112], "GT-004")
+    truth("GT-004", "Storm over Mansarovar overflows colony drains, waterlogs streets and "
+          "breaks the road up", "weather.rain",
+          ["weather.rain", "drain.overflow", "complaint.waterlogging",
+           "complaint.road_damage"], g, 40, 45)
+
+    # ---- GT-005: Tonk Road -- waterlogged underpass trips a feeder ----------------
+    g = [rain("Tonk Road", 45, 55, 20.0, "GT-005")]
+    g += complaints("complaint.waterlogging", "Tonk Road", [60, 66, 72, 79], "GT-005")
+    g += power_cut("Tonk Road", 76, 80, 4400.0, "WATER INGRESS", 2, "GT-005")
+    truth("GT-005", "Rain on Tonk Road floods a feeder pillar; power and signals go out",
+          "weather.rain", ["weather.rain", "complaint.waterlogging", "power.outage",
+                           "traffic.signal_down"], g, 45, 45)
+
+    # ---- GT-006: Vidyadhar Nagar -- evening overload, before any rain ---------------
+    g = power_cut("Vidyadhar Nagar", 15, 110, 4700.0, "OVERLOAD", 3, "GT-006")
+    g += complaints("complaint.streetlight", "Vidyadhar Nagar", [22, 29, 37], "GT-006")
+    truth("GT-006", "Feeder overload in Vidyadhar Nagar darkens signals and streetlights",
+          "power.outage", ["power.outage", "traffic.signal_down", "complaint.streetlight"],
+          g, 15, 40)
+
+    # ---- GT-007: Sanganer -- the storm moves south-east ------------------------------
+    g = [rain("Sanganer", 70, 50, 26.0, "GT-007")]
+    g += drains("Sanganer", 78, 116.0, "GT-007")
+    g += complaints("complaint.road_damage", "Sanganer", [92, 99, 107], "GT-007")
+    truth("GT-007", "Storm over Sanganer overflows the nala and damages the road beside it",
+          "weather.rain", ["weather.rain", "drain.overflow", "complaint.road_damage"],
+          g, 70, 50)
+
+    # ---- GT-008: Jagatpura -- last core, drains back up into streets ------------------
+    g = [rain("Jagatpura", 85, 45, 21.0, "GT-008")]
+    g += drains("Jagatpura", 93, 120.0, "GT-008")
+    g += complaints("complaint.waterlogging", "Jagatpura", [100, 106, 113], "GT-008")
+    truth("GT-008", "Storm over Jagatpura backs the drains up into the streets",
+          "weather.rain", ["weather.rain", "drain.overflow", "complaint.waterlogging"],
+          g, 85, 45)
 
     return specs, truths
 
@@ -432,49 +431,41 @@ def decoy_specs(world, seed: int = config.SEED):
     from ingest.zones import load_landmarks
     by_name = {lm["name"]: lm for lm in load_landmarks()}
 
-    # DC-001: routine garbage complaints in Mansarovar, during the storm, 9 km away.
-    ms_cell = by_name["Mansarovar"]["h3_cell"]
+    # DC-001: routine garbage complaints in Jagatpura, during the storm.
+    jg_cell = by_name["Jagatpura"]["h3_cell"]
     d1 = []
     for i in range(3):
-        lat, lon = _point_in_cell(r, ms_cell)
+        lat, lon = _point_in_cell(r, jg_cell)
         d1.append(EventSpec(
             category="complaint.garbage", source="civic_complaints",
             start=S + timedelta(minutes=70 + i * 18),
-            lat=lat, lon=lon, h3_cell=ms_cell, measure=3.0,
-            extra={"landmark": "Mansarovar"}, decoy_id="DC-001"))
+            lat=lat, lon=lon, h3_cell=jg_cell, measure=3.0,
+            extra={"landmark": "Jagatpura"}, decoy_id="DC-001"))
     specs += d1
     decoys.append({
         "decoy_id": "DC-001",
-        "label": "Routine garbage complaints in Mansarovar happen to land during the storm",
-        "why_unrelated": "Same hour, 9 km away, and garbage complaints run at this rate every evening",
+        "label": "Routine garbage complaints in Jagatpura happen to land during the storm",
+        "why_unrelated": "Garbage piles up over days; nothing in a storm causes it within the hour",
         "must_not_alert_above": "yellow",
         "specs": d1,
     })
 
-    # DC-002: festival crowd delays near Hawa Mahal -- grid distance 4 from the storm.
+    # DC-002: festival crowd at Hawa Mahal -- garbage and a dark streetlight, no outage.
     hm_cell = by_name["Hawa Mahal"]["h3_cell"]
-    hm_zone = neighbors(hm_cell, 1)
     d2 = []
-    cands = sorted(sid for sid, s in world["stops"].items() if s["h3_cell"] in hm_zone)
-    for i, (delay, off) in enumerate([(760, 75), (880, 84), (640, 96), (920, 108)]):
-        if not cands:
-            break
-        sid = cands[i % len(cands)]
-        s = world["stops"][sid]
-        at = S + timedelta(minutes=off)
-        route_id = s["routes"][0]
+    for i, (cat, off) in enumerate([("complaint.garbage", 75), ("complaint.garbage", 84),
+                                    ("complaint.streetlight", 96),
+                                    ("complaint.garbage", 108)]):
+        lat, lon = _point_in_cell(r, hm_cell)
         d2.append(EventSpec(
-            category="transit.delay", source="transit_gtfs", start=at,
-            end=at + timedelta(minutes=30),
-            lat=s["lat"], lon=s["lon"], h3_cell=s["h3_cell"],
-            measure=float(delay), entity=sid,
-            extra={"route_id": route_id, "trip_id": _trip_id(route_id, at)},
-            decoy_id="DC-002"))
+            category=cat, source="civic_complaints", start=S + timedelta(minutes=off),
+            lat=lat, lon=lon, h3_cell=hm_cell, measure=3.0,
+            extra={"landmark": "Hawa Mahal"}, decoy_id="DC-002"))
     specs += d2
     decoys.append({
         "decoy_id": "DC-002",
-        "label": "Festival crowd slows buses near Hawa Mahal at the same time as the storm",
-        "why_unrelated": "Four areas away from the flooding, no rain reported here, and the crowd is scheduled",
+        "label": "Festival crowd near Hawa Mahal leaves garbage and reports a dark streetlight",
+        "why_unrelated": "No power cut on this feeder and no heavy rain here; the crowd is scheduled",
         "must_not_alert_above": "yellow",
         "specs": d2,
     })

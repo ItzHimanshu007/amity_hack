@@ -21,7 +21,7 @@ def _confidence(spec) -> float:
         return 0.90                      # planted sensors are calibrated ones
     if spec.source == "civic_complaints":
         return 0.60                      # 0.70 resident x 0.85 landmark-resolved
-    if spec.source in ("power_discom", "transit_gtfs"):
+    if spec.source in ("power_discom", "drain_scada"):
         return 0.72                      # 0.90 sensor x 0.80 registry-resolved
     return 0.70
 
@@ -76,8 +76,9 @@ def build(scenario_name: str, truths, decoys) -> dict:
 
 
 DESCRIPTIONS = {
-    "monsoon_evening": "Evening cloudburst over the walled city during peak bus hours, "
-                       "plus an unrelated transformer failure and a garbage fire",
+    "monsoon_evening": "A monsoon storm cell crossing the city in the evening rush: drains "
+                       "overflow and streets flood in several areas, plus unrelated "
+                       "transformer failures and a garbage fire",
     "calm": "Fourteen days of baseline noise with nothing planted",
 }
 

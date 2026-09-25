@@ -17,7 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from ingest.zones import assert_bbox_cell_count                      # noqa: E402
 from sim import (air_feed, complaints_feed, config, ground_truth,     # noqa: E402
-                 power_feed, registries, scenario, transit_feed, weather_feed)
+                 drain_feed, power_feed, registries, scenario, weather_feed)
 
 SCENARIOS = ("monsoon_evening", "calm")
 
@@ -30,14 +30,14 @@ def run(scenario_name: str = "monsoon_evening", seed: int = config.SEED) -> dict
     print(f"  zones           {n_cells} res-8 cells in the bbox")
 
     feeder_reg = registries.build_feeder_registry(seed)
-    stop_reg = registries.build_stop_registry(seed)
+    drain_reg = registries.build_drain_registry(seed)
     (config.DATA_DIR / config.OUTPUT_FILES["feeder_registry"]).write_text(
         json.dumps(feeder_reg, indent=2) + "\n", encoding="utf-8")
-    (config.DATA_DIR / config.OUTPUT_FILES["stop_registry"]).write_text(
-        json.dumps(stop_reg, indent=2) + "\n", encoding="utf-8")
-    print(f"  registries      {len(feeder_reg)} feeders, {len(stop_reg)} stops")
+    (config.DATA_DIR / config.OUTPUT_FILES["drain_registry"]).write_text(
+        json.dumps(drain_reg, indent=2) + "\n", encoding="utf-8")
+    print(f"  registries      {len(feeder_reg)} feeders, {len(drain_reg)} drain gauges")
 
-    world = scenario.build_world(feeder_reg, stop_reg, seed)
+    world = scenario.build_world(feeder_reg, drain_reg, seed)
 
     specs = scenario.baseline_specs(world, seed)
     n_baseline = len(specs)
@@ -52,7 +52,7 @@ def run(scenario_name: str = "monsoon_evening", seed: int = config.SEED) -> dict
     for name, writer in (("weather_imd", weather_feed),
                          ("air_sensors", air_feed),
                          ("power_discom", power_feed),
-                         ("transit_gtfs", transit_feed),
+                         ("drain_scada", drain_feed),
                          ("civic_complaints", complaints_feed)):
         n, idx = writer.write(world, specs, seed)
         counts[name] = n

@@ -49,7 +49,7 @@ def write(world, specs, seed: int = config.SEED):
     def day_profile(day_key):
         d = rng(f"weather_day:{day_key}", seed)
         return {
-            "tmax": d.uniform(30.0, 37.5),
+            "tmax": d.uniform(29.5, 34.5),     # late-September monsoon, Jaipur
             "tmin": d.uniform(22.0, 27.0),
             "rh_base": d.uniform(52.0, 82.0),
         }

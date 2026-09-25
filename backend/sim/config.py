@@ -17,13 +17,12 @@ HISTORY_START = SIM_START - timedelta(days=HISTORY_DAYS)
 HISTORY_END = SIM_START
 
 # --- entity counts ------------------------------------------------------------
-N_WEATHER_STATIONS = 6
+N_WEATHER_STATIONS = 13        # one per landmark, plus the city centre gauge
 N_AIR_SENSORS = 8
 N_FEEDERS = 120
 FEEDERS_PER_LANDMARK = 6          # the rest are scattered uniformly
 FRACTION_FEEDERS_WITH_SIGNALS = 0.35
-N_ROUTES = 10
-STOPS_PER_ROUTE = 18
+DRAIN_SENSORS_PER_LANDMARK = 2    # storm-drain (nala) level gauges, JDA/JMC SCADA
 
 # Share of city cells that flood first. Waterlogging complaints prefer these.
 FRACTION_LOW_LYING = 0.18
@@ -38,18 +37,14 @@ BASELINE_RATES = {
     "complaint.smoke":        0.2,
     "traffic.signal_down":    0.08,   # resident-reported dark junctions
     "power.outage":           0.22,
-    "transit.delay":          2.4,
+    "drain.overflow":         0.05,   # blockage overflows with no rain (debris, silt)
     "weather.rain":           0.06,   # episodes, not observations
 }
-
-# --- transit service day (IST hours) -------------------------------------------
-SERVICE_START_HOUR_IST = 5
-SERVICE_END_HOUR_IST = 23
 
 # --- how long things last ------------------------------------------------------
 RAIN_EPISODE_MIN = (25, 90)
 OUTAGE_MIN = (20, 180)
-TRANSIT_DELAY_MIN = (12, 45)
+DRAIN_OVERFLOW_MIN = (25, 90)
 PM25_EPISODE_MIN = (40, 180)
 
 # --- air sensor realism ---------------------------------------------------------
@@ -62,10 +57,10 @@ OUTPUT_FILES = {
     "weather_imd": "raw_weather_imd.jsonl",
     "civic_complaints": "raw_civic_complaints.csv",
     "power_discom": "raw_power_discom.jsonl",
-    "transit_gtfs": "raw_transit_gtfs.jsonl",
+    "drain_scada": "raw_drain_scada.jsonl",
     "air_sensors": "raw_air_sensors.jsonl",
     "feeder_registry": "feeder_registry.json",
-    "stop_registry": "stop_registry.json",
+    "drain_registry": "drain_sensor_registry.json",
     "ground_truth": "ground_truth.json",
     "event_index": "event_index.jsonl",
 }

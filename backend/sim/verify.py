@@ -51,6 +51,11 @@ def _parse_utc(s):
 
 # ------------------------------------------------------------------- checks ---
 
+def _polled_utc(text):
+    """drain_scada's IST day-first wall-clock text -> aware UTC."""
+    return datetime.strptime(text, "%d/%m/%Y %H:%M").replace(tzinfo=timezone.utc) - IST_OFFSET
+
+
 def check_a_counts():
     print("(a) record counts")
     start, end = config.SIM_START, config.SIM_END
@@ -70,10 +75,9 @@ def check_a_counts():
                .replace(tzinfo=timezone.utc) - IST_OFFSET <= end)
     rows.append(("power_discom", len(pw), demo))
 
-    tr = list(_jsonl("transit_gtfs"))
-    demo = sum(1 for m in tr
-               if start <= datetime.fromtimestamp(m["header"]["timestamp"], timezone.utc) <= end)
-    rows.append(("transit_gtfs", len(tr), demo))
+    dr = list(_jsonl("drain_scada"))
+    demo = sum(1 for m in dr if start <= _polled_utc(m["polled"]) <= end)
+    rows.append(("drain_scada", len(dr), demo))
 
     cp = list(_complaint_rows())
     rows.append(("civic_complaints", len(cp), None))
@@ -110,8 +114,8 @@ def check_b_bbox():
         test("air_sensors", r["loc"]["latitude"], r["loc"]["longitude"], r["sensor"])
     for fid, f in _load_json("feeder_registry").items():
         test("feeder_registry", f["lat"], f["lon"], fid)
-    for sid, s in _load_json("stop_registry").items():
-        test("stop_registry", s["lat"], s["lon"], sid)
+    for rid, d in _load_json("drain_registry").items():
+        test("drain_registry", d["lat"], d["lon"], rid)
     for e in _jsonl("event_index"):
         test("event_index", e["lat"], e["lon"], e["event_id"][:8])
 
@@ -129,21 +133,17 @@ def check_b_bbox():
 def check_c_registries():
     print("(c) registry integrity")
     feeders = set(_load_json("feeder_registry"))
-    stops = set(_load_json("stop_registry"))
+    drains = set(_load_json("drain_registry"))
 
     missing_f = {r["feeder_id"] for r in _jsonl("power_discom")} - feeders
-    missing_s = set()
-    for m in _jsonl("transit_gtfs"):
-        for ent in m["entity"]:
-            for u in ent["trip_update"]["stop_time_update"]:
-                if u["stop_id"] not in stops:
-                    missing_s.add(u["stop_id"])
+    missing_s = {m["rtu"] for m in _jsonl("drain_scada")} - drains
 
     print(f"      power references {len(feeders - missing_f)} known feeders, "
           f"{len(missing_f)} unknown")
-    print(f"      transit references stops, {len(missing_s)} unknown")
+    print(f"      drains reference {len(drains - missing_s)} known gauges, "
+          f"{len(missing_s)} unknown")
     ok = not missing_f and not missing_s
-    print(f"{OK if ok else FAIL} every feeder_id and stop_id resolves through a registry")
+    print(f"{OK if ok else FAIL} every feeder_id and drain rtu resolves through a registry")
     return ok
 
 
@@ -162,11 +162,8 @@ def check_d_ground_truth():
         ts = int((datetime.strptime(r["reported_time"], "%Y-%m-%dT%H:%M:%S")
                   .replace(tzinfo=timezone.utc) - IST_OFFSET).timestamp())
         refs.add(f"power_discom:{r['feeder_id']}@{ts}")
-    for m in _jsonl("transit_gtfs"):
-        for ent in m["entity"]:
-            tid = ent["trip_update"]["trip"]["trip_id"]
-            for u in ent["trip_update"]["stop_time_update"]:
-                refs.add(f"transit_gtfs:{tid}@{u['stop_id']}")
+    for m in _jsonl("drain_scada"):
+        refs.add(f"drain_scada:{m['rtu']}@{int(_polled_utc(m['polled']).timestamp())}")
     for row in _complaint_rows():
         refs.add(f"civic_complaints:{row['complaint_id']}")
 

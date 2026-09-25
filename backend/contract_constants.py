@@ -24,7 +24,7 @@ CATEGORIES = (
     "air.pm25",
     "power.outage",
     "traffic.signal_down",
-    "transit.delay",
+    "drain.overflow",
     "complaint.waterlogging",
     "complaint.garbage",
     "complaint.streetlight",
@@ -43,7 +43,7 @@ CATEGORY_FEEDS = {
     "air.pm25": {"air_sensors"},
     "power.outage": {"power_discom"},
     "traffic.signal_down": {"power_discom", "civic_complaints"},
-    "transit.delay": {"transit_gtfs"},
+    "drain.overflow": {"drain_scada"},
     "complaint.waterlogging": {"civic_complaints"},
     "complaint.garbage": {"civic_complaints"},
     "complaint.streetlight": {"civic_complaints"},
@@ -56,7 +56,7 @@ FEEDS = {
     "weather_imd":      {"interval_sec": 300, "format": "jsonl", "file": "raw_weather_imd.jsonl"},
     "civic_complaints": {"interval_sec":  60, "format": "csv",   "file": "raw_civic_complaints.csv"},
     "power_discom":     {"interval_sec": 120, "format": "jsonl", "file": "raw_power_discom.jsonl"},
-    "transit_gtfs":     {"interval_sec":  30, "format": "jsonl", "file": "raw_transit_gtfs.jsonl"},
+    "drain_scada":      {"interval_sec": 600, "format": "jsonl", "file": "raw_drain_scada.jsonl"},
     "air_sensors":      {"interval_sec": 180, "format": "jsonl", "file": "raw_air_sensors.jsonl"},
 }
 
@@ -68,7 +68,7 @@ SEVERITY_RAMPS = {
     "air.pm25":            (60.0, 300.0),   # ug/m3
     "power.outage":        (200.0, 8000.0), # affected_connections
     "traffic.signal_down": (1.0, 6.0),      # junctions dark
-    "transit.delay":       (300.0, 2700.0), # seconds
+    "drain.overflow":      (85.0, 130.0),   # % of channel capacity
     # every complaint.* shares one ramp: open complaints in the cell, 30 min window
     "complaint.*":         (1.0, 12.0),
 }
@@ -147,7 +147,7 @@ LIFT_SMOOTHING = 0.5
 # history as stationary noise with no planted structure (sim.verify check (e) hard-
 # fails otherwise), so most plausible pairs measure BELOW 1.0 there: measured lift is
 # 0.44 for complaint.waterlogging -> power.outage and 0.89 for
-# traffic.signal_down -> transit.delay -- both real legs of GT-001's own cascade. Any
+# weather.rain -> power.outage -- both real legs of GT-001's own cascade. Any
 # threshold near or above 1.0 would veto legs of the headline scenario. (The one
 # pair that IS structurally certain -- power.outage -> traffic.signal_down,
 # CONTRACT.md §D.3's single raw record emitting both at once -- measures a lift of
@@ -217,12 +217,13 @@ REPLAY_ALLOWED_SPEEDS = (1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 100.0, 200.0)
 # clock directly there, and the caller recomputes served state as-of that instant.
 REPLAY_BOOKMARKS = {
     "window_start":         "2026-09-24T12:00:00Z",
-    "storm_onset":          "2026-09-24T12:55:00Z",
+    "storm_onset":          "2026-09-24T12:40:00Z",
     "first_situation":      "2026-09-24T13:20:00Z",
     "feed_kill_demo_point": "2026-09-24T13:35:00Z",
-    "gt002_onset":          "2026-09-24T13:20:00Z",
+    "gt002_onset":          "2026-09-24T12:50:00Z",
     "gt003_onset":          "2026-09-24T13:05:00Z",
     "peak_activity":        "2026-09-24T14:00:00Z",
+    "all_situations":       "2026-09-24T14:50:00Z",
     "window_end":           "2026-09-24T15:00:00Z",
 }
 

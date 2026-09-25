@@ -26,14 +26,14 @@ from ingest.zones import grid_distance, zone_label
 _CATEGORY_EN = {
     "weather.rain": "Heavy rain", "weather.heat": "Extreme heat", "air.pm25": "Poor air",
     "power.outage": "A power cut", "traffic.signal_down": "A signal not working",
-    "transit.delay": "Bus delays", "complaint.waterlogging": "Waterlogging",
+    "drain.overflow": "Overflowing drains", "complaint.waterlogging": "Waterlogging",
     "complaint.garbage": "Uncleared garbage", "complaint.streetlight": "A dark streetlight",
     "complaint.road_damage": "Road damage", "complaint.smoke": "Smoke or burning",
 }
 _CATEGORY_HI = {
     "weather.rain": "तेज़ बारिश", "weather.heat": "अत्यधिक गर्मी", "air.pm25": "खराब हवा",
     "power.outage": "बिजली कटौती", "traffic.signal_down": "बंद सिग्नल",
-    "transit.delay": "बस में देरी", "complaint.waterlogging": "जलभराव",
+    "drain.overflow": "उफनते नाले", "complaint.waterlogging": "जलभराव",
     "complaint.garbage": "कचरा", "complaint.streetlight": "बंद स्ट्रीटलाइट",
     "complaint.road_damage": "सड़क खराब", "complaint.smoke": "धुआँ",
 }
@@ -42,7 +42,7 @@ _START_EN = {
     "weather.rain": "Heavy rain started", "weather.heat": "Extreme heat set in",
     "air.pm25": "Air quality dropped", "power.outage": "Power went out",
     "traffic.signal_down": "A traffic signal went dark",
-    "transit.delay": "Buses started running late", "complaint.waterlogging": "Residents reported waterlogging",
+    "drain.overflow": "Storm drains started overflowing", "complaint.waterlogging": "Residents reported waterlogging",
     "complaint.garbage": "Residents reported uncleared garbage",
     "complaint.streetlight": "A streetlight was reported dark",
     "complaint.road_damage": "Residents reported road damage",
@@ -52,7 +52,7 @@ _START_HI = {
     "weather.rain": "तेज़ बारिश शुरू हुई", "weather.heat": "अत्यधिक गर्मी शुरू हुई",
     "air.pm25": "हवा की गुणवत्ता गिरी", "power.outage": "बिजली चली गई",
     "traffic.signal_down": "एक ट्रैफिक सिग्नल बंद हो गया",
-    "transit.delay": "बसें देरी से चलने लगीं", "complaint.waterlogging": "निवासियों ने जलभराव की शिकायत की",
+    "drain.overflow": "नाले उफनने लगे", "complaint.waterlogging": "निवासियों ने जलभराव की शिकायत की",
     "complaint.garbage": "निवासियों ने कचरा न उठने की शिकायत की",
     "complaint.streetlight": "एक स्ट्रीटलाइट बंद बताई गई",
     "complaint.road_damage": "निवासियों ने सड़क खराब होने की शिकायत की",
@@ -62,7 +62,7 @@ _THEN_EN = {
     "weather.rain": "heavy rain started", "weather.heat": "extreme heat set in",
     "air.pm25": "air quality dropped", "power.outage": "power went out",
     "traffic.signal_down": "a traffic signal went dark",
-    "transit.delay": "buses started running late", "complaint.waterlogging": "residents reported waterlogging",
+    "drain.overflow": "storm drains started overflowing", "complaint.waterlogging": "residents reported waterlogging",
     "complaint.garbage": "residents reported uncleared garbage",
     "complaint.streetlight": "a streetlight was reported dark",
     "complaint.road_damage": "residents reported road damage",
@@ -72,7 +72,7 @@ _THEN_HI = {
     "weather.rain": "तेज़ बारिश शुरू हुई", "weather.heat": "अत्यधिक गर्मी शुरू हुई",
     "air.pm25": "हवा की गुणवत्ता गिरी", "power.outage": "बिजली चली गई",
     "traffic.signal_down": "एक ट्रैफिक सिग्नल बंद हो गया",
-    "transit.delay": "बसें देरी से चलने लगीं", "complaint.waterlogging": "जलभराव की शिकायत आई",
+    "drain.overflow": "नाले उफनने लगे", "complaint.waterlogging": "जलभराव की शिकायत आई",
     "complaint.garbage": "कचरा न उठने की शिकायत आई",
     "complaint.streetlight": "स्ट्रीटलाइट बंद बताई गई",
     "complaint.road_damage": "सड़क खराब होने की शिकायत आई",
@@ -251,7 +251,7 @@ def compute_confidence(member_events: list, sources: set, max_grid_distance: int
 
     relevant_degraded = degraded_feeds & sources if degraded_feeds else set()
     # A situation is only degraded by a feed that's stale AND relevant to one of its
-    # OWN member categories -- a stale transit feed says nothing about a rain reading.
+    # OWN member categories -- a stale drain feed says nothing about a smoke report.
     if relevant_degraded:
         order = CONFIDENCE_ORDER
         idx = max(0, order.index(level) - 1)
@@ -277,7 +277,7 @@ def build_headline(chain: list) -> tuple:
         "complaint.waterlogging": "is causing waterlogging",
         "power.outage": "has cut power",
         "traffic.signal_down": "has left a signal dark",
-        "transit.delay": "is holding up buses",
+        "drain.overflow": "is overflowing the drains",
         "complaint.road_damage": "has damaged the road",
         "complaint.streetlight": "has left a streetlight dark",
         "air.pm25": "is worsening the air",
@@ -286,7 +286,7 @@ def build_headline(chain: list) -> tuple:
         "complaint.waterlogging": "से जलभराव हो रहा है",
         "power.outage": "से बिजली गई है",
         "traffic.signal_down": "से सिग्नल बंद है",
-        "transit.delay": "से बसें रुकी हैं",
+        "drain.overflow": "से नाले उफन रहे हैं",
         "complaint.road_damage": "से सड़क खराब हुई है",
         "complaint.streetlight": "से स्ट्रीटलाइट बंद है",
         "air.pm25": "से हवा खराब हो रही है",
@@ -389,12 +389,17 @@ def build_situation(episodes: list, all_events_by_id: dict, lift_table: dict,
         alert = "yellow"
 
     headline_en, headline_hi = build_headline(chain)
-    headline_en = headline_en.replace("{ZONE}", zone["label_en"])
-    headline_hi = headline_hi.replace("{ZONE}", zone["label_hi"])
+    # The zone label may already say "Near X" / "X के पास"; the headline template says
+    # "near {ZONE}" itself, so drop the label's own "near" rather than doubling it.
+    label_en = zone["label_en"]
+    label_en = label_en[5:] if label_en.startswith("Near ") else label_en
+    label_hi = zone["label_hi"].removesuffix(" के पास")
+    headline_en = headline_en.replace("{ZONE}", label_en)
+    headline_hi = headline_hi.replace("{ZONE}", label_hi)
 
     closed = all(e.get("end_utc") for e in member_events)
     anomaly_ids = sorted({aid for ep in episodes for aid in ep["anomaly_ids"]})
-    predicted_next = build_predicted_next(episodes, lift_table)
+    predicted_next = build_predicted_next(episodes, lift_table, chain[-1]["category"])
 
     return {
         "situation_id": situation_id_for(anomaly_ids),
@@ -420,7 +425,7 @@ def build_situation(episodes: list, all_events_by_id: dict, lift_table: dict,
     }
 
 
-def build_predicted_next(episodes: list, lift_table: dict) -> dict:
+def build_predicted_next(episodes: list, lift_table: dict, last_category: str = None) -> dict:
     """Phase 5 brief step 9: one predictive line, one hop only. Looks at the LAST
     chain step's category, and whether the plausibility table names something that
     commonly follows it which hasn't shown up in this cluster yet.
@@ -430,15 +435,18 @@ def build_predicted_next(episodes: list, lift_table: dict) -> dict:
     say -- either no plausible successor, or one that already fired, or one the
     history never saw the cause category do at all (nothing to base a lag range on).
     """
-    last = max(episodes, key=lambda ep: ep["rep_t"])
+    # The chain's own last step, when given: two episodes can share a timestamp (a
+    # feeder trip emits power.outage and traffic.signal_down in one record), and the
+    # prediction must hang off the step the chain actually shows last.
+    last_cat = last_category or max(episodes, key=lambda ep: ep["rep_t"])["category"]
     present = {ep["category"] for ep in episodes}
-    candidates = [c for c in successors(last["category"]) if c not in present]
+    candidates = [c for c in successors(last_cat) if c not in present]
     if not candidates:
         return None
 
     best_cat, best_row = None, None
     for cat in candidates:
-        row = lift_for(lift_table, last["category"], cat)
+        row = lift_for(lift_table, last_cat, cat)
         if row["n_cause"] == 0:
             continue
         if best_row is None or row["value"] > best_row["value"]:

@@ -1,4 +1,4 @@
-"""Resolves the feeds that lack coordinates: feeder_id -> lat/lon, stop_id -> lat/lon,
+"""Resolves the feeds that lack coordinates: feeder_id -> lat/lon, drain rtu -> lat/lon + depth,
 landmark text -> lat/lon.
 
 CONTRACT.md §D.2/§D.3/§D.4. Two of the five feeds report opaque ids and no coordinates,
@@ -29,10 +29,10 @@ class Resolver:
     def __init__(self, data_dir: Path = None):
         self.data_dir = Path(data_dir) if data_dir else DATA_DIR
         self.feeders = self._load("feeder_registry.json")
-        self.stops = self._load("stop_registry.json")
+        self.drains = self._load("drain_sensor_registry.json")
         self.stats = {
             "feeder_hit": 0, "feeder_miss": 0,
-            "stop_hit": 0, "stop_miss": 0,
+            "drain_hit": 0, "drain_miss": 0,
             "landmark_hit": 0, "landmark_miss": 0,
             "out_of_bbox": 0,
         }
@@ -61,13 +61,15 @@ class Resolver:
         self.stats["feeder_hit"] += 1
         return float(f["lat"]), float(f["lon"]), f["h3_cell"], RESOLUTION_REGISTRY
 
-    def stop(self, stop_id: str):
-        s = self.stops.get(stop_id)
-        if s is None:
-            self.stats["stop_miss"] += 1
-            raise Unresolved(f"stop_id not in registry: {stop_id}")
-        self.stats["stop_hit"] += 1
-        return float(s["lat"]), float(s["lon"]), s["h3_cell"], RESOLUTION_REGISTRY
+    def drain(self, rtu_id: str):
+        """Location AND channel depth: a level in cm is meaningless without the depth."""
+        d = self.drains.get(rtu_id)
+        if d is None:
+            self.stats["drain_miss"] += 1
+            raise Unresolved(f"rtu id not in drain registry: {rtu_id}")
+        self.stats["drain_hit"] += 1
+        return (float(d["lat"]), float(d["lon"]), d["h3_cell"], RESOLUTION_REGISTRY,
+                float(d["capacity_cm"]))
 
     def feeder_meta(self, feeder_id: str) -> dict:
         return self.feeders.get(feeder_id, {})

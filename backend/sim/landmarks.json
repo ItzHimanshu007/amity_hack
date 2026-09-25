@@ -10,6 +10,10 @@
     { "name": "Sindhi Camp",        "name_hi": "सिंधी कैंप",      "lat": 26.9268, "lon": 75.7930 },
     { "name": "Vaishali Nagar",     "name_hi": "वैशाली नगर",      "lat": 26.9124, "lon": 75.7370 },
     { "name": "Malviya Nagar",      "name_hi": "मालवीय नगर",      "lat": 26.8549, "lon": 75.8106 },
-    { "name": "Mansarovar",         "name_hi": "मानसरोवर",       "lat": 26.8505, "lon": 75.7628 }
+    { "name": "Mansarovar",         "name_hi": "मानसरोवर",       "lat": 26.8505, "lon": 75.7628 },
+    { "name": "Vidyadhar Nagar",    "name_hi": "विद्याधर नगर",    "lat": 26.9580, "lon": 75.7810 },
+    { "name": "Tonk Road",          "name_hi": "टोंक रोड",        "lat": 26.8830, "lon": 75.8040 },
+    { "name": "Jagatpura",          "name_hi": "जगतपुरा",        "lat": 26.8260, "lon": 75.8420 },
+    { "name": "Sanganer",           "name_hi": "सांगानेर",        "lat": 26.8200, "lon": 75.7900 }
   ]
 }

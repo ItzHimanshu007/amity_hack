@@ -24,7 +24,7 @@ reachable through `raw_ref`.
 | Field | Type | Null? | Rule |
 |---|---|---|---|
 | `event_id` | str | no | **UUID5**, derived — never random. `uuid5(NAGARNAADI_NS, f"{raw_ref}\|{category}")`. See [event_id derivation](#event_id-derivation-fixed) below. Stable for the life of the event. |
-| `source` | str | no | Feed id from [D](#d-feed-list): `weather_imd` \| `civic_complaints` \| `power_discom` \| `transit_gtfs` \| `air_sensors` |
+| `source` | str | no | Feed id from [D](#d-feed-list): `weather_imd` \| `civic_complaints` \| `power_discom` \| `drain_scada` \| `air_sensors` |
 | `category` | str | no | One of the 11 ids in [B](#b-category-enum). |
 | `h3_cell` | str | no | H3 **resolution 8** index, 15 hex chars, e.g. `"883da218c3fffff"`. Always `latlng_to_cell(lat, lon, 8)`. |
 | `lat` | float | no | WGS84, 5 decimal places. |
@@ -75,7 +75,7 @@ strings. Granularity differs per feed, because fan-out differs per feed.
 | `weather_imd` | `weather_imd:<station_id>@<ts_epoch>` | many records → 1 event; id comes from the record that **opens** it |
 | `air_sensors` | `air_sensors:<sensor>@<captured>` | many records → 1 event; id comes from the record that **opens** it |
 | `power_discom` | `power_discom:<feeder_id>@<reported_epoch>` | 1 record → **2** events when `carries_signals` is true |
-| `transit_gtfs` | `transit_gtfs:<trip_id>@<stop_id>` | 1 record → **N** events, one per delayed stop |
+| `drain_scada` | `drain_scada:<rtu>@<epoch>` | the poll that first crossed the overflow floor; the episode keeps it |
 | `civic_complaints` | `civic_complaints:<complaint_id>` | 1 record → 1 event |
 
 Rules that follow:
@@ -87,8 +87,8 @@ Rules that follow:
   A rain episode spans many 5-minute observations but is one event, so the event keeps
   the `raw_ref` of the first above-floor observation for its whole life — consistent with
   [D.1](#d1-weather_imd)'s "use the latest record per station; do not sum".
-- `transit_gtfs` omits the message timestamp on purpose, so the id stays stable as
-  [D.4](#d4-transit_gtfs) revises the delay for the same `(trip_id, stop_id)`.
+- `drain_scada`'s `<epoch>` is the opening poll's IST text converted to UTC epoch seconds,
+  so every later poll of the same overflow folds into one event ([D.4](#d4-drain_scada)).
 - A `RESTORE` record never mints an id. It closes the `power.outage` opened by the
   matching `TRIP`, which keeps the `TRIP`'s `raw_ref`.
 
@@ -104,7 +104,7 @@ a ceiling (at which severity = 1.0).
 | `air.pm25` | µg/m³ | 60 | 300 |
 | `power.outage` | affected_connections | 200 | 8000 |
 | `traffic.signal_down` | junctions dark | 1 | 6 |
-| `transit.delay` | delay seconds | 300 | 2700 |
+| `drain.overflow` | level, % of channel capacity | 85 | 130 |
 | `complaint.*` | count of open complaints in the cell, 30 min window | 1 | 12 |
 
 **Note on `traffic.signal_down` from `civic_complaints`.** The floor for this category
@@ -127,7 +127,7 @@ independent-corroboration signal instead (see the dedupe carve-out above). Blend
 | Direct sensor reading, `calibrated: false` | `0.60` |
 | Resident-reported complaint | `0.70` |
 | Location resolved from a landmark string | multiply by `0.85` |
-| Location resolved from a `feeder_id` or `stop_id` registry | multiply by `0.80` |
+| Location resolved from a `feeder_id` or drain `rtu` registry | multiply by `0.80` |
 
 Round to 2 decimals. Floor at `0.30`.
 
@@ -170,7 +170,7 @@ Eleven ids. This list is closed — no phase may add a twelfth without editing t
 | `air.pm25` | Poor air | खराब हवा | `air_sensors` |
 | `power.outage` | Power cut | बिजली कटौती | `power_discom` |
 | `traffic.signal_down` | Signal not working | सिग्नल बंद | `power_discom`, `civic_complaints` |
-| `transit.delay` | Bus running late | बस देरी से | `transit_gtfs` |
+| `drain.overflow` | Drain overflowing | नाला उफान पर | `drain_scada` |
 | `complaint.waterlogging` | Waterlogging | जलभराव | `civic_complaints` |
 | `complaint.garbage` | Garbage not cleared | कचरा नहीं उठा | `civic_complaints` |
 | `complaint.streetlight` | Streetlight out | स्ट्रीटलाइट बंद | `civic_complaints` |
@@ -246,7 +246,7 @@ The linker in Phase 5 treats events as spatially related when
 ### landmarks and zone labels
 
 A cell index means nothing to a resident, so every zone gets a human label derived from
-the nearest landmark. These nine are the reference set. The complaints feed in
+the nearest landmark. These thirteen are the reference set. The complaints feed in
 [D.2](#d2-civic_complaints) writes these strings as free text, and `ingest/geocode.py`
 resolves them back to coordinates — so this table is both the label source and the
 geocoder dictionary.
@@ -262,6 +262,10 @@ geocoder dictionary.
 | Vaishali Nagar | वैशाली नगर | 26.9124 | 75.7370 | `883da21801fffff` |
 | Malviya Nagar | मालवीय नगर | 26.8549 | 75.8106 | `883da20a6dfffff` |
 | Mansarovar | मानसरोवर | 26.8505 | 75.7628 | `883da219e3fffff` |
+| Vidyadhar Nagar | विद्याधर नगर | 26.9580 | 75.7810 | `883da21ab9fffff` |
+| Tonk Road | टोंक रोड | 26.8830 | 75.8040 | `883da218a7fffff` |
+| Jagatpura | जगतपुरा | 26.8260 | 75.8420 | `883da20b13fffff` |
+| Sanganer | सांगानेर | 26.8200 | 75.7900 | `883da20b45fffff` |
 
 **Label rule.** For a cell, take its centroid, find the nearest landmark by haversine
 distance, and format:
@@ -288,7 +292,7 @@ faithfully ugly and Phase 3 must absorb all of it.
 | 1 | `weather_imd` | JSON lines, **UTC epoch seconds** | `/data/raw_weather_imd.jsonl` | 300 s | `weather.rain`, `weather.heat` |
 | 2 | `civic_complaints` | **CSV**, IST text dates, landmark text address | `/data/raw_civic_complaints.csv` | 60 s | all 5 `complaint.*`, `traffic.signal_down` |
 | 3 | `power_discom` | JSON lines, **`feeder_id`, no coordinates** | `/data/raw_power_discom.jsonl` | 120 s | `power.outage`, `traffic.signal_down` |
-| 4 | `transit_gtfs` | **GTFS-realtime-like** nested JSON | `/data/raw_transit_gtfs.jsonl` | 30 s | `transit.delay` |
+| 4 | `drain_scada` | **SCADA-style** tagged channels, IST text time | `/data/raw_drain_scada.jsonl` | 600 s | `drain.overflow` |
 | 5 | `air_sensors` | JSON lines, **one object per sensor** | `/data/raw_air_sensors.jsonl` | 180 s | `air.pm25` |
 
 "Interval" is in simulated time. The `speed` control in [E](#e-api-contract) multiplies
@@ -302,7 +306,7 @@ the number.
 ### deduplication rule (read this before writing any parser)
 
 Phase 3 **does** collapse repeats of the same real-world thing from the *same* feed:
-a `trip_id + stop_id` reappearing with an updated delay ([D.4](#d4-transit_gtfs)) updates
+a drain gauge polled again during the same overflow ([D.4](#d4-drain_scada)) updates
 one open event, and a re-sent weather observation for a station replaces the previous one.
 
 Phase 3 **must never** collapse records that came from **different `source` feeds**, even
@@ -408,25 +412,26 @@ Phase 3 must handle:
   [D.2](#d2-civic_complaints) counts as `1`.
 - `est_restore_min` is a claim, not a fact. It informs the UI's wording, never `end_utc`.
 
-### D.4 `transit_gtfs`
+### D.4 `drain_scada`
 
-City bus realtime, shaped like GTFS-realtime `TripUpdate` messages.
+Storm-drain (nala) water-level telemetry from JDA/JMC-style gauges, SCADA-shaped.
 
 ```json
-{"header":{"gtfs_realtime_version":"2.0","timestamp":1758719700},"entity":[{"id":"e1","trip_update":{"trip":{"trip_id":"JCTSL-22A-1830","route_id":"22A","route_name":"Sindhi Camp – Mansarovar"},"stop_time_update":[{"stop_id":"JAI-STP-0412","stop_sequence":7,"arrival":{"delay":840,"time":1758720540}},{"stop_id":"JAI-STP-0418","stop_sequence":8,"arrival":{"delay":-60,"time":1758720900}}]}}]}
+{"rtu":"JDA-NALA-11","polled":"24/09/2026 18:40","ch":[{"tag":"LVL_CM","v":142.5},{"tag":"BATT_V","v":12.61}]}
 ```
 
 Phase 3 must handle:
 
-- **One raw record fans out to many events.** Each `stop_time_update` above the delay
-  floor becomes its own canonical event. The record above yields one event, not two.
-- `arrival.delay` is **seconds and can be negative** (running early). Ignore `delay <= 0`.
-- **No coordinates.** `stop_id` → lat/lon via `/data/stop_registry.json`, generated by
-  Phase 1 in the same shape as the feeder registry.
-- `header.timestamp` (epoch seconds) is the feed publish time → `received_at`.
-  `arrival.time − arrival.delay` is the scheduled arrival → `start_utc`.
-- The same `trip_id` reappears each cycle with an updated delay. Keep one open event per
-  `(trip_id, stop_id)` and update its severity rather than creating duplicates.
+- **No coordinates and no scale.** `rtu` → lat/lon **and** `capacity_cm` (the channel's
+  design depth) via `/data/drain_sensor_registry.json`. A level in cm means nothing
+  without the depth, so an unknown `rtu` is dropped, never guessed.
+- **`polled` is IST wall-clock text, day first**, with no zone marker. Convert to UTC.
+- **Readings are tagged channels, not fields.** `LVL_CM` is the level above the channel
+  bed; `BATT_V` the RTU battery (below 11.2 V, apply the low-battery multiplier).
+- **Faults.** `LVL_CM` of `-999`, or a missing `LVL_CM` channel, is a fault: the record is
+  dropped and any open overflow episode closes. A dead gauge is not a drained drain.
+- The measure is `level / capacity × 100`, rounded to 0.1. At or over **85%** the drain
+  is surcharging and an event opens; every later poll above the floor folds into it.
 
 ### D.5 `air_sensors`
 
@@ -525,7 +530,7 @@ The one call a fresh page load makes. After this, everything arrives over `/stre
       "message": null
     },
     {
-      "feed": "transit_gtfs",
+      "feed": "drain_scada",
       "state": "killed",
       "last_record_utc": "2026-09-24T13:04:10Z",
       "age_sec": 950,
@@ -570,7 +575,7 @@ Connect and receive. The server pushes; the client never sends on this socket (u
 the line-drawing animation in DESIGN.md.
 
 ```json
-{"type":"feedhealth","sent_utc":"2026-09-24T13:19:10Z","data":{"feed":"transit_gtfs","state":"killed","last_record_utc":"2026-09-24T13:04:10Z","age_sec":950,"interval_sec":30,"records_total":1602,"records_dropped":0,"message":"Stopped by operator"}}
+{"type":"feedhealth","sent_utc":"2026-09-24T13:19:10Z","data":{"feed":"drain_scada","state":"killed","last_record_utc":"2026-09-24T13:04:10Z","age_sec":950,"interval_sec":600,"records_total":1602,"records_dropped":0,"message":"Stopped by operator"}}
 ```
 
 ```json
@@ -814,7 +819,7 @@ in ten seconds. Everything else in this repo exists to produce these.
   "status": "active",
   "pulse_score": 62,
   "alert_level": "orange",
-  "headline_en": "Flooding near Sindhi Camp is holding up buses",
+  "headline_en": "Heavy rain near Sindhi Camp has left a signal dark",
   "headline_hi": "सिंधी कैंप के पास जलभराव से बसें रुकी हैं",
   "zone": {
     "label_en": "Near Sindhi Camp + 2 nearby areas",
@@ -850,9 +855,9 @@ in ten seconds. Everything else in this repo exists to produce these.
       "step": 3,
       "event_id": "c7d2f810-3e4b-4c9a-8f61-2a5d0b3e7c44",
       "t_utc": "2026-09-24T13:18:00Z",
-      "category": "transit.delay",
+      "category": "drain.overflow",
       "h3_cell": "883da218c3fffff",
-      "text_en": "6 minutes later, route 22A buses were running 14 minutes late at the same stop",
+      "text_en": "6 minutes later, the Sindhi Camp trunk drain was running over capacity",
       "text_hi": "6 मिनट बाद, उसी स्टॉप पर 22A बसें 14 मिनट देरी से चलीं"
     }
   ],
@@ -869,7 +874,7 @@ in ten seconds. Everything else in this repo exists to produce these.
     ],
     "lift": {
       "value": 6.4,
-      "pair": ["weather.rain", "transit.delay"],
+      "pair": ["weather.rain", "drain.overflow"],
       "window_sec": 3600,
       "baseline_rate_per_hour": 0.12,
       "observed_rate_per_hour": 0.77,
@@ -989,29 +994,27 @@ would reject the single most certain link in the system.
 
 | Cause | Effect | Gap (min) | Why |
 |---|---|---|---|
-| `complaint.road_damage` | `transit.delay` | 0–60 | a broken carriageway slows every vehicle including buses |
 | `complaint.smoke` | `air.pm25` | 0–30 | burning close by pushes particulate readings up downwind |
 | `complaint.waterlogging` | `complaint.road_damage` | 0–240 | water under the surface breaks the road up |
 | `complaint.waterlogging` | `power.outage` | 0–60 | water in a street-level substation or feeder pillar trips it |
-| `complaint.waterlogging` | `transit.delay` | 0–60 | a flooded stretch forces buses to crawl or divert |
 | `power.outage` | `complaint.streetlight` | 0–60 | the same dead feeder takes the street lights with it |
 | `power.outage` | `traffic.signal_down` | 0–30 | a tripped feeder carrying signal circuits leaves junctions dark |
-| `traffic.signal_down` | `transit.delay` | 0–45 | unsignalled junctions back up and buses lose their slot |
 | `weather.heat` | `power.outage` | 0–180 | peak cooling load on a hot afternoon overloads distribution feeders |
 | `weather.rain` | `complaint.road_damage` | 0–240 | standing water opens up potholes that residents then report |
 | `weather.rain` | `complaint.waterlogging` | 0–90 | heavy rain pools in low-lying streets within the hour |
 | `weather.rain` | `power.outage` | 0–120 | water reaching a feeder or transformer trips the circuit |
-| `weather.rain` | `transit.delay` | 0–120 | wet roads and reduced visibility slow every bus on the route |
+| `weather.rain` | `drain.overflow` | 0–60 | a burst of rain fills the storm drains faster than they can carry it away |
+| `drain.overflow` | `complaint.waterlogging` | 0–60 | a surcharged drain backs up and spills onto the street |
+| `drain.overflow` | `complaint.road_damage` | 0–240 | water forced out of a full drain undermines the road beside it |
 
 `complaint.garbage` appears on **neither side of any edge**, deliberately. Uncollected
 garbage is an accumulation condition measured in days, not an event with minute-scale
 causes or effects among the other ten categories — putting an edge from it to
 `complaint.smoke` (say) would let a routine, unrelated garbage backlog absorb an actual
-fire report just because both happened to be nearby. `air.pm25`, `transit.delay` and
+fire report just because both happened to be nearby. `air.pm25`, `traffic.signal_down` and
 `complaint.streetlight` are **effect-only**: they never start a chain (see "standalone
-situations" below) — buses run late for reasons a civic feed cannot see (a festival
-crowd, a broken-down truck), so a lone bus-delay cluster is never, on its own, claimed
-as a situation.
+situations" below) — a light or a signal fails for reasons a civic feed cannot see,
+so a lone cluster of them is never, on its own, claimed as a situation.
 
 ### lift
 
@@ -1032,8 +1035,8 @@ here"; below `1.0` means "no more than chance."
 Phase 1 generates the 14-day history as deliberately stationary noise with **no**
 planted causal structure (`sim.verify` check (e) hard-fails the build otherwise), so
 most genuinely plausible pairs measure *below* 1.0 there: `0.44` for
-`complaint.waterlogging → power.outage`, `0.89` for `traffic.signal_down →
-transit.delay` — both real legs of GT-001's own planted cascade. A lift threshold near
+`complaint.waterlogging → power.outage`, and below 1.0 for `weather.rain →
+power.outage` too — both real legs of GT-001's own planted cascade. A lift threshold near
 or above 1.0 would veto legs of the headline scenario. (The one pair that IS
 structurally deterministic — `power.outage → traffic.signal_down`, one raw record
 emitting both at the same instant — measures a lift near 44 even in stationary noise;
@@ -1152,16 +1155,16 @@ the resident view must never see it — that would be cheating at our own demo.
 ```json
 {
   "scenario": "monsoon_evening",
-  "description": "Evening cloudburst over the walled city during peak bus hours",
+  "description": "A monsoon storm cell crossing the city in the evening rush",
   "generated_utc": "2026-09-24T12:00:00Z",
   "sim_start_utc": "2026-09-24T12:00:00Z",
   "sim_end_utc": "2026-09-24T15:00:00Z",
   "planted_situations": [
     {
       "truth_id": "GT-001",
-      "label": "Cloudburst at Sindhi Camp floods the bus stand and delays route 22A",
+      "label": "Cloudburst over Sindhi Camp overflows drains, floods the bus stand and trips a feeder that darkens signals",
       "root_cause_category": "weather.rain",
-      "expected_chain": ["weather.rain", "complaint.waterlogging", "transit.delay"],
+      "expected_chain": ["weather.rain", "drain.overflow", "complaint.waterlogging", "power.outage", "traffic.signal_down"],
       "expected_alert_level": "orange",
       "expected_zone_cells": ["883da218c3fffff", "883da218c7fffff"],
       "member_event_ids": [
@@ -1226,10 +1229,10 @@ ever hand-edited; regenerate instead.
 | `/data/raw_weather_imd.jsonl` | JSON Lines | Phase 1 |
 | `/data/raw_civic_complaints.csv` | CSV with a header row | Phase 1 |
 | `/data/raw_power_discom.jsonl` | JSON Lines | Phase 1 |
-| `/data/raw_transit_gtfs.jsonl` | JSON Lines | Phase 1 |
+| `/data/raw_drain_scada.jsonl` | JSON Lines | Phase 1 |
 | `/data/raw_air_sensors.jsonl` | JSON Lines | Phase 1 |
 | `/data/feeder_registry.json` | JSON object | Phase 1 |
-| `/data/stop_registry.json` | JSON object | Phase 1 |
+| `/data/drain_sensor_registry.json` | JSON object | Phase 1 |
 | `/data/ground_truth.json` | JSON object | Phase 2 |
 | `/data/event_index.jsonl` | JSON Lines | Phase 1 |
 | `/data/events.jsonl` | JSON Lines, canonical events | Phase 3 |

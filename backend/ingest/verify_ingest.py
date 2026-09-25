@@ -57,7 +57,7 @@ def check_a_reconciliation(result):
     print(f"      complaint clustering rescaled "
           f"{result['cluster_stats']['rescaled']} events (no count change)")
     print(f"      final canonical events: {len(result['events'])}")
-    print(f"{OK} every delta is one of: fan-out (transit), episode folding (dedupe), "
+    print(f"{OK} every delta is one of: episode folding (dedupe), "
           f"unresolved/unmapped drops, or below-floor drops")
     return True
 
@@ -85,8 +85,14 @@ def check_c_cross_source_survival(result):
     print("(c) cross-source survival of traffic.signal_down  [hard fail]")
     split = result["signal_down_split"]
     print(f"      observed split: {split}")
-    print(f"      Phase 1 reported: power_discom=35, civic_complaints=22")
-    ok = split.get("power_discom") == 35 and split.get("civic_complaints") == 22
+    want = {}
+    for e in _answer_key_index().values():
+        if e["category"] == "traffic.signal_down":
+            want[e["source"]] = want.get(e["source"], 0) + 1
+    print(f"      Phase 1 reported: power_discom={want.get('power_discom', 0)}, "
+          f"civic_complaints={want.get('civic_complaints', 0)}")
+    ok = (split.get("power_discom") == want.get("power_discom")
+          and split.get("civic_complaints") == want.get("civic_complaints"))
     print(f"{OK if ok else FAIL} signal_down survives under both source values "
           f"with the expected counts")
     return ok
@@ -172,20 +178,20 @@ def check_f_registry_resolution(result):
     print("(f) registry resolution + landmark resolution rate")
     r = result["resolver_stats"]
     feeder_total = r["feeder_hit"] + r["feeder_miss"]
-    stop_total = r["stop_hit"] + r["stop_miss"]
+    drain_total = r["drain_hit"] + r["drain_miss"]
     lm_total = r["landmark_hit"] + r["landmark_miss"]
     feeder_rate = r["feeder_hit"] / feeder_total if feeder_total else 1.0
-    stop_rate = r["stop_hit"] / stop_total if stop_total else 1.0
+    drain_rate = r["drain_hit"] / drain_total if drain_total else 1.0
     lm_rate = r["landmark_hit"] / lm_total if lm_total else 1.0
 
     print(f"      feeder_id resolution: {r['feeder_hit']}/{feeder_total} "
           f"({feeder_rate:.1%})")
-    print(f"      stop_id resolution:   {r['stop_hit']}/{stop_total} ({stop_rate:.1%})")
+    print(f"      drain rtu resolution: {r['drain_hit']}/{drain_total} ({drain_rate:.1%})")
     print(f"      landmark resolution:  {r['landmark_hit']}/{lm_total} "
           f"({lm_rate:.1%}), {r['landmark_miss']} unresolved and dropped")
 
-    ok = feeder_rate == 1.0 and stop_rate == 1.0
-    print(f"{OK if ok else FAIL} feeder_id and stop_id resolve at 100% "
+    ok = feeder_rate == 1.0 and drain_rate == 1.0
+    print(f"{OK if ok else FAIL} feeder_id and drain rtu resolve at 100% "
           f"(registries are closed sets Phase 1 generated); landmark resolution is "
           f"naturally <100% because some rows carry no usable address")
     return ok

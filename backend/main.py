@@ -17,7 +17,7 @@ from contract_constants import REPLAY_BOOKMARKS
 
 # The clock opens here rather than at window_start: nothing has linked yet at
 # 12:00Z, so a cold open there is an empty map that reads as a broken app.
-# peak_activity is the exact minute GT-001 becomes visible.
+# At peak_activity (7:30 PM IST) five situations are live across the city.
 OPENING_BOOKMARK = "peak_activity"
 
 logging.basicConfig(level=logging.INFO, format="%(name)s | %(message)s")

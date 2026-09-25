@@ -8,13 +8,13 @@ keeps the folding rule in one place and makes the reconciliation delta honest.
 Every adapter returns (candidates, stats).
 """
 
-from ingest.adapters import (air_sensors, civic_complaints, power_discom,  # noqa: F401
-                             transit_gtfs, weather_imd)
+from ingest.adapters import (air_sensors, civic_complaints, drain_scada,  # noqa: F401
+                             power_discom, weather_imd)
 
 ADAPTERS = {
     "weather_imd": weather_imd,
     "air_sensors": air_sensors,
     "power_discom": power_discom,
-    "transit_gtfs": transit_gtfs,
+    "drain_scada": drain_scada,
     "civic_complaints": civic_complaints,
 }

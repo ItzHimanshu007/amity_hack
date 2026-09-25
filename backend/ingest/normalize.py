@@ -58,8 +58,9 @@ def ref_power(feeder_id: str, reported: datetime) -> str:
     return f"power_discom:{feeder_id}@{epoch(reported)}"
 
 
-def ref_transit(trip_id: str, stop_id: str) -> str:
-    return f"transit_gtfs:{trip_id}@{stop_id}"
+def ref_drain(rtu_id: str, polled: datetime) -> str:
+    """The poll that first crossed the overflow floor; the episode keeps it."""
+    return f"drain_scada:{rtu_id}@{epoch(polled)}"
 
 
 def ref_complaint(complaint_id: str) -> str:
@@ -97,7 +98,7 @@ def received_at_for(feed: str, start: datetime, observed: datetime = None) -> da
     """When ingest saw the record.
 
     Replaying files, there is no real arrival clock. Where a feed states its own publish
-    time we use it (transit's header.timestamp, CONTRACT.md §D.4). Otherwise we model the
+    time we use it. Otherwise we model the
     worst-case polling latency: a record can sit for at most one update interval before
     the next poll picks it up, so received_at = start + that feed's interval (§D).
     """
@@ -161,6 +162,6 @@ __all__ = [
     "make_event_id", "build_event", "confidence_for", "severity_for", "iso",
     "from_epoch", "from_iso_z", "from_ist_naive_iso", "from_ist_complaint",
     "received_at_for", "crosses_floor",
-    "ref_weather", "ref_air", "ref_power", "ref_transit", "ref_complaint",
+    "ref_weather", "ref_air", "ref_power", "ref_drain", "ref_complaint",
     "RESOLUTION_DIRECT", "RESOLUTION_REGISTRY", "RESOLUTION_LANDMARK",
 ]
