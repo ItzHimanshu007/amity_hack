@@ -12,13 +12,13 @@
  * the bottom timeline from data those files already have.
  *
  * Owns: .topbar, #city-health, #feed-health-compact, #situation-hero,
- * #sim-timeline, view switching for the four <section data-view-panel>
+ * #situation-others, view switching for the four <section data-view-panel>
  * blocks in index.html, and the #sim-console open/close → naadi resize hook.
  */
 
 import {
   fetchState, fetchScorecard, connectStream, selectSituation,
-  CATEGORY_LABELS, FEED_IDS, FEED_LABELS, ACTION_BY_CATEGORY, toISTClock, formatDuration,
+  CATEGORY_LABELS, FEED_IDS, FEED_LABELS, ACTION_BY_CATEGORY, ALERT_WORDS, toISTClock, formatDuration,
   fetchTerrain, isFloodSituation, LANDMARK_BY_CELL, fetchFlood, floodFrameIndex,
 } from "./api.js";
 
@@ -28,7 +28,7 @@ const CATEGORY_FEEDS = {
   "weather.rain": ["weather_imd"], "weather.heat": ["weather_imd"],
   "air.pm25": ["air_sensors"], "power.outage": ["power_discom"],
   "traffic.signal_down": ["power_discom", "civic_complaints"],
-  "transit.delay": ["transit_gtfs"],
+  "drain.overflow": ["drain_scada"],
   "complaint.waterlogging": ["civic_complaints"], "complaint.garbage": ["civic_complaints"],
   "complaint.streetlight": ["civic_complaints"], "complaint.road_damage": ["civic_complaints"],
   "complaint.smoke": ["civic_complaints"],
@@ -39,7 +39,7 @@ const CATEGORY_FEEDS = {
 // these, and CATEGORY_LABELS' plain-language text is still what's read.
 const CATEGORY_ICON = {
   "weather.rain": "🌧️", "weather.heat": "🌡️", "air.pm25": "🌫️",
-  "power.outage": "⚡", "traffic.signal_down": "🚦", "transit.delay": "🚌",
+  "power.outage": "⚡", "traffic.signal_down": "🚦", "drain.overflow": "🌊",
   "complaint.waterlogging": "💧", "complaint.garbage": "🗑️",
   "complaint.streetlight": "💡", "complaint.road_damage": "🕳️",
   "complaint.smoke": "🔥",
@@ -79,10 +79,25 @@ function renderTopbarStatus() {
   } else {
     text.textContent = lastTick.state === "play" ? "Simulation live" : "Simulation paused";
   }
-  clock.textContent = lastTick.sim_time_utc ? `${toISTClock(lastTick.sim_time_utc)} IST` : "--:-- IST";
+  renderLiveClock();
+}
+
+// The top-bar clock is Jaipur's real time, not replay time (the replay clock lives
+// in the Simulation console).
+const IST_FORMAT = new Intl.DateTimeFormat("en-IN", {
+  timeZone: "Asia/Kolkata", hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true,
+});
+const IST_DATE = new Intl.DateTimeFormat("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short" });
+function renderLiveClock() {
+  const clock = document.getElementById("topbar-clock");
+  if (!clock) return;
+  const now = new Date();
+  clock.textContent = `Jaipur ${IST_FORMAT.format(now)} IST · ${IST_DATE.format(now)}`;
 }
 
 function initTopbar() {
+  renderLiveClock();
+  setInterval(renderLiveClock, 1000);
   // js/controls.js shares confirmed sim status straight from /control responses,
   // so the top bar doesn't wait for the next tick after a click.
   window.addEventListener("sim:status", (ev) => {
@@ -337,6 +352,8 @@ function pickPrimarySituation() {
     if (byLevel > 0 || (byLevel === 0 && sit.pulse_score > best.pulse_score)
         || (byLevel === 0 && sit.pulse_score === best.pulse_score && new Date(sit.created_utc) > new Date(best.created_utc))) best = sit;
   }
+  const pinned = active.find((s) => s.situation_id === pinnedHeroId);
+  if (pinned) return pinned;
   const current = active.find((s) => s.situation_id === lastHeroId);
   if (current && (LEVEL_RANK[best.alert_level] ?? 0) <= (LEVEL_RANK[current.alert_level] ?? 0)) return current;
   return best;
@@ -363,6 +380,59 @@ function gapMinutesText(fromIso, toIso) {
 function predictionList(predictedNext) {
   if (!predictedNext) return [];
   return Array.isArray(predictedNext) ? predictedNext : [predictedNext];
+}
+
+// ================================================= other active situations ==
+// Every live situation besides the hero, most serious first. Picking one makes
+// it the hero (until another is picked) and flies the map to it.
+let pinnedHeroId = null;
+
+function renderOthers(hero) {
+  const el = document.getElementById("situation-others");
+  if (!el) return;
+  const others = [...situationsById.values()]
+    .filter((s) => !s.is_decoy && s.status === "active")
+    .sort((a, b) => (LEVEL_RANK[b.alert_level] ?? 0) - (LEVEL_RANK[a.alert_level] ?? 0)
+      || b.pulse_score - a.pulse_score);
+  el.innerHTML = "";
+  el.hidden = others.length === 0;
+  if (!others.length) return;
+  const head = document.createElement("p");
+  head.className = "situation-others__head label";
+  head.textContent = `Live situations · ${others.length} ${others.length === 1 ? "area" : "areas"}`;
+  el.appendChild(head);
+  const list = document.createElement("ul");
+  list.className = "situation-others__list";
+  for (const sit of others) {
+    const li = document.createElement("li");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `situation-others__item situation-others__item--${sit.alert_level}`
+      + (hero && sit.situation_id === hero.situation_id ? " is-current" : "");
+    const dot = document.createElement("span");
+    dot.className = "situation-others__dot";
+    const text = document.createElement("span");
+    text.className = "situation-others__text";
+    const h = document.createElement("span");
+    h.className = "situation-others__headline";
+    h.textContent = sit.headline_en;
+    const meta = document.createElement("span");
+    meta.className = "situation-others__meta";
+    const steps = (sit.chain || []).length;
+    meta.textContent = `${(ALERT_WORDS[sit.alert_level] || {}).en || sit.alert_level} · ${steps} linked ${steps === 1 ? "signal" : "signals"}`;
+    text.appendChild(h);
+    text.appendChild(meta);
+    btn.appendChild(dot);
+    btn.appendChild(text);
+    btn.addEventListener("click", () => {
+      pinnedHeroId = sit.situation_id;
+      renderHero();
+      window.dispatchEvent(new CustomEvent("situation:focus", { detail: { situation: sit } }));
+    });
+    li.appendChild(btn);
+    list.appendChild(li);
+  }
+  el.appendChild(list);
 }
 
 function renderHeroEmpty() {
@@ -397,7 +467,8 @@ window.addEventListener("hero:request", () => {
 function renderHero() {
   const situation = pickPrimarySituation();
   announceHero(situation);
-  if (!situation) { renderHeroEmpty(); renderTimeline(null); return; }
+  renderOthers(situation);
+  if (!situation) { renderHeroEmpty(); return; }
 
   const el = document.getElementById("situation-hero");
   if (!el) return;
@@ -640,52 +711,13 @@ function renderHero() {
   residentBtn.addEventListener("click", () => window.open("resident.html", "_blank"));
   actions.appendChild(fullBtn);
   actions.appendChild(residentBtn);
-  el.appendChild(actions);
+  // Actions sit under the confidence line, not at the bottom: the explanation
+  // below can scroll, the two buttons are always on screen.
+  const firstSection = el.querySelector(".situation-hero__section-heading");
+  el.insertBefore(actions, firstSection ? firstSection : null);
 
-  renderTimeline(situation);
 }
 
-// ================================================================ timeline ==
-
-function renderTimeline(situation) {
-  const el = document.getElementById("sim-timeline");
-  if (!el) return;
-  el.innerHTML = "";
-
-  const heading = document.createElement("p");
-  heading.className = "sim-timeline__heading label";
-  heading.textContent = "Simulation timeline";
-  el.appendChild(heading);
-
-  const track = document.createElement("div");
-  track.className = "sim-timeline__track";
-
-  const chain = (situation && situation.chain) || [];
-  if (chain.length === 0) {
-    const now = document.createElement("div");
-    now.className = "sim-timeline__point";
-    const t = document.createElement("span");
-    t.className = "sim-timeline__point-time data";
-    t.textContent = lastTick.sim_time_utc ? `${toISTClock(lastTick.sim_time_utc)}` : "--:--";
-    now.appendChild(t);
-    track.appendChild(now);
-  } else {
-    chain.forEach((step) => {
-      const point = document.createElement("div");
-      point.className = "sim-timeline__point";
-      const t = document.createElement("span");
-      t.className = "sim-timeline__point-time data";
-      t.textContent = toISTClock(step.t_utc);
-      const icon = document.createElement("span");
-      icon.className = "sim-timeline__point-icon";
-      icon.textContent = CATEGORY_ICON[step.category] || "•";
-      point.appendChild(t);
-      point.appendChild(icon);
-      track.appendChild(point);
-    });
-  }
-  el.appendChild(track);
-}
 
 // =================================================================== boot ==
 
@@ -716,7 +748,6 @@ async function init() {
   initSimConsole();
   renderFeedHealthCompact();
   renderHeroEmpty();
-  renderTimeline(null);
 
   try {
     const state = await fetchState();

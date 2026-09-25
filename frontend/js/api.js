@@ -97,6 +97,8 @@ export const LANDMARK_BY_CELL = {
   "883da21891fffff": "Hawa Mahal", "883da20319fffff": "Amer Fort", "883da2033dfffff": "Jal Mahal",
   "883da218b9fffff": "Albert Hall Museum", "883da218c7fffff": "Jaipur Junction", "883da218c3fffff": "Sindhi Camp",
   "883da21801fffff": "Vaishali Nagar", "883da20a6dfffff": "Malviya Nagar", "883da219e3fffff": "Mansarovar",
+  "883da21ab9fffff": "Vidyadhar Nagar", "883da218a7fffff": "Tonk Road", "883da20b13fffff": "Jagatpura",
+  "883da20b45fffff": "Sanganer",
 };
 
 // Modelled surface water for this replay (tools/flood/model_flood.py): rain from
@@ -231,7 +233,7 @@ export const CATEGORY_LABELS = {
   "air.pm25":                { en: "Poor air",             hi: "खराब हवा" },
   "power.outage":            { en: "Power cut",            hi: "बिजली कटौती" },
   "traffic.signal_down":     { en: "Signal not working",   hi: "सिग्नल बंद" },
-  "transit.delay":           { en: "Bus running late",     hi: "बस देरी से" },
+  "drain.overflow":          { en: "Drain overflowing",    hi: "नाला उफान पर" },
   "complaint.waterlogging":  { en: "Waterlogging",         hi: "जलभराव" },
   "complaint.garbage":       { en: "Garbage not cleared",  hi: "कचरा नहीं उठा" },
   "complaint.streetlight":   { en: "Streetlight out",      hi: "स्ट्रीटलाइट बंद" },
@@ -243,7 +245,7 @@ export const FEED_LABELS = {
   weather_imd:      { en: "Weather station",      hi: "मौसम स्टेशन" },
   civic_complaints: { en: "Civic complaints",     hi: "नागरिक शिकायतें" },
   power_discom:     { en: "Power grid",           hi: "बिजली ग्रिड" },
-  transit_gtfs:     { en: "City buses",           hi: "शहर की बसें" },
+  drain_scada:      { en: "Storm-drain sensors",  hi: "नाला स्तर सेंसर" },
   air_sensors:      { en: "Air quality sensors",  hi: "वायु गुणवत्ता सेंसर" },
 };
 
@@ -271,12 +273,11 @@ export const SPEEDS = [1, 2, 4, 8, 16, 32, 64, 100, 200];
 // per DESIGN.md's button rule ("6pm, before the storm", not the bookmark id).
 export const BOOKMARKS = [
   { id: "window_start",         label_en: "Jump to 5:30pm — simulation start" },
-  { id: "storm_onset",          label_en: "Jump to 6:25pm — rain begins" },
-  { id: "gt003_onset",          label_en: "Jump to 6:35pm — smoke reported" },
-  { id: "first_situation",      label_en: "Jump to 6:50pm — first cascade reports" },
-  { id: "gt002_onset",          label_en: "Jump to 6:50pm — power cut begins" },
-  { id: "feed_kill_demo_point", label_en: "Jump to 7:05pm — feed-outage demo point" },
-  { id: "peak_activity",        label_en: "Jump to 7:30pm — peak activity" },
+  { id: "storm_onset",          label_en: "Jump to 6:10pm — storm reaches Mansarovar" },
+  { id: "first_situation",      label_en: "Jump to 6:50pm — first situation" },
+  { id: "feed_kill_demo_point", label_en: "Jump to 7:05pm — storm crossing the city" },
+  { id: "peak_activity",        label_en: "Jump to 7:30pm — five areas affected" },
+  { id: "all_situations",       label_en: "Jump to 8:20pm — all eight situations" },
   { id: "window_end",           label_en: "Jump to 8:30pm — simulation end" },
 ];
 
@@ -291,13 +292,13 @@ export const ACTION_BY_CATEGORY = {
   "complaint.waterlogging": { en: "Avoid this area if you can — roads may be flooded.", hi: "हो सके तो इस क्षेत्र से बचें — सड़कों पर पानी हो सकता है।" },
   "power.outage":           { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
   "traffic.signal_down":    { en: "Expect signals to be dark near here — drive carefully.", hi: "पास में सिग्नल बंद हो सकते हैं — सावधानी से चलाएँ।" },
-  "transit.delay":          { en: "Expect bus delays on nearby routes.", hi: "पास के रूटों पर बसें देरी से चल सकती हैं।" },
+  "drain.overflow":         { en: "Keep clear of open drains and underpasses nearby.", hi: "पास के खुले नालों और अंडरपास से दूर रहें।" },
   "complaint.smoke":        { en: "Keep windows closed if you're nearby.", hi: "पास हैं तो खिड़कियाँ बंद रखें।" },
   "air.pm25":               { en: "Limit outdoor activity if you're sensitive to air quality.", hi: "हवा को लेकर संवेदनशील हैं तो बाहर कम रहें।" },
   "weather.heat":           { en: "Stay hydrated and avoid the sun if you're nearby.", hi: "पानी पीते रहें और धूप से बचें।" },
   "complaint.garbage":      { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
   "complaint.streetlight":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
-  "complaint.road_damage":  { en: "Being tracked — no action needed.", hi: "नज़र रखी जा रही है — कोई कार्रवाई ज़रूरी नहीं।" },
+  "complaint.road_damage":  { en: "Drive slowly — the road surface is broken here.", hi: "धीरे चलाएँ — यहाँ सड़क टूटी है।" },
 };
 
 /** ISO UTC string -> "6:42 pm" in IST. The one place this side does the conversion. */

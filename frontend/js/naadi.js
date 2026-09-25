@@ -24,12 +24,12 @@
 
 import { connectStream, sendControl } from "./api.js";
 
-const FEED_IDS = ["weather_imd", "civic_complaints", "power_discom", "transit_gtfs", "air_sensors"];
+const FEED_IDS = ["weather_imd", "civic_complaints", "power_discom", "drain_scada", "air_sensors"];
 const FEED_LABELS = {
   weather_imd: { en: "Weather", hi: "मौसम" },
   civic_complaints: { en: "Civic complaints", hi: "नागरिक शिकायतें" },
   power_discom: { en: "Power", hi: "बिजली" },
-  transit_gtfs: { en: "City buses", hi: "शहर की बसें" },
+  drain_scada: { en: "Storm-drain sensors", hi: "नाला स्तर सेंसर" },
   air_sensors: { en: "Air quality", hi: "हवा की गुणवत्ता" },
 };
 // CONTRACT.md §B "Emitted by" — the category enum is closed/fixed, so this
@@ -41,7 +41,7 @@ const CATEGORY_TO_FEEDS = {
   "air.pm25": ["air_sensors"],
   "power.outage": ["power_discom"],
   "traffic.signal_down": ["power_discom", "civic_complaints"],
-  "transit.delay": ["transit_gtfs"],
+  "drain.overflow": ["drain_scada"],
   "complaint.waterlogging": ["civic_complaints"],
   "complaint.garbage": ["civic_complaints"],
   "complaint.streetlight": ["civic_complaints"],

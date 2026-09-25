@@ -25,7 +25,7 @@ const CATEGORY_FEEDS_FALLBACK = {
   "weather.rain": ["weather_imd"], "weather.heat": ["weather_imd"],
   "air.pm25": ["air_sensors"], "power.outage": ["power_discom"],
   "traffic.signal_down": ["power_discom", "civic_complaints"],
-  "transit.delay": ["transit_gtfs"],
+  "drain.overflow": ["drain_scada"],
   "complaint.waterlogging": ["civic_complaints"], "complaint.garbage": ["civic_complaints"],
   "complaint.streetlight": ["civic_complaints"], "complaint.road_damage": ["civic_complaints"],
   "complaint.smoke": ["civic_complaints"],

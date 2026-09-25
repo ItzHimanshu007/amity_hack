@@ -19,44 +19,47 @@
 /* ----------------------------------------------------------------- tokens */
 
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  /* --- status-neutral palette --- */
-  --chuna: #F2F4F1;   /* page background */
-  --kagaz: #FAFBF9;   /* panel/card surface: one step lighter than --chuna.
-                         Depth comes from this surface + a --rekha border,
-                         never a shadow (DESIGN.md anti-tells). */
-  --syahi: #1F2A30;   /* ink: text, ECG trace, hex outlines */
-  --dhool: #6B7780;   /* secondary text */
-  --rekha: #D5DBD8;   /* borders, dividers, ECG grid */
-  --neel:  #2B3A8C;   /* interactive / selected ONLY — never a status */
+  /* --- status-neutral palette: dark control-room (the demo default) --- */
+  --chuna: #0A111E;   /* page background: deep navy */
+  --kagaz: #111B2C;   /* panel/card surface: one step lighter than --chuna.
+                         Depth comes from this surface + a --rekha border. */
+  --syahi: #E7EEF7;   /* ink: text, ECG trace, hex outlines (15:1 on --kagaz) */
+  --dhool: #9EB1C7;   /* secondary text (7.6:1 on --kagaz) */
+  --rekha: #23324A;   /* borders, dividers, ECG grid */
+  --neel:  #4C8DFF;   /* interactive / selected ONLY — never a status */
 
   /* --- IMD four-level alert. Status only. Never decorative. --- */
-  --green:  #2F8F5B;  /* all normal   */
-  --yellow: #E3B505;  /* be aware     */
-  --orange: #E0701F;  /* be prepared  */
-  --red:    #C62D2D;  /* take action  */
+  --green:  #34C77B;  /* all normal   */
+  --yellow: #F4C430;  /* be aware     */
+  --orange: #FF8A3D;  /* be prepared  */
+  --red:    #FF4D57;  /* take action  */
 
   /* Water / drainage on the terrain layer. Informational, never a status. */
-  --jal:    #2F7FB5;
+  --jal:    #3BA8FF;
 
-  /* Derived fills (12%) and borders (45%). Do not invent new alphas inline. */
-  --green-fill:  color-mix(in srgb, var(--green)  12%, var(--chuna));
-  --yellow-fill: color-mix(in srgb, var(--yellow) 12%, var(--chuna));
-  --orange-fill: color-mix(in srgb, var(--orange) 12%, var(--chuna));
-  --red-fill:    color-mix(in srgb, var(--red)    12%, var(--chuna));
-  --green-edge:  color-mix(in srgb, var(--green)  45%, transparent);
-  --yellow-edge: color-mix(in srgb, var(--yellow) 45%, transparent);
-  --orange-edge: color-mix(in srgb, var(--orange) 45%, transparent);
-  --red-edge:    color-mix(in srgb, var(--red)    45%, transparent);
+  /* Derived fills and borders. On a dark map a fill mixed into the background
+     disappears, so fills are translucent status colour over whatever is below. */
+  --green-fill:  color-mix(in srgb, var(--green)  26%, transparent);
+  --yellow-fill: color-mix(in srgb, var(--yellow) 28%, transparent);
+  --orange-fill: color-mix(in srgb, var(--orange) 32%, transparent);
+  --red-fill:    color-mix(in srgb, var(--red)    36%, transparent);
+  --green-edge:  color-mix(in srgb, var(--green)  80%, transparent);
+  --yellow-edge: color-mix(in srgb, var(--yellow) 80%, transparent);
+  --orange-edge: color-mix(in srgb, var(--orange) 85%, transparent);
+  --red-edge:    color-mix(in srgb, var(--red)    90%, transparent);
 
-  /* Card surfaces (6%): enough tint to scan severity down a rail of cards,
-     far short of the 12% fill the map uses. Paired with the alert word and a
-     4px edge — never color alone. */
-  --green-surface:  color-mix(in srgb, var(--green)  6%, var(--kagaz));
-  --yellow-surface: color-mix(in srgb, var(--yellow) 6%, var(--kagaz));
-  --orange-surface: color-mix(in srgb, var(--orange) 6%, var(--kagaz));
-  --red-surface:    color-mix(in srgb, var(--red)    6%, var(--kagaz));
+  /* Card surfaces: a tint of the status colour over the panel surface. Paired
+     with the alert word and a 4px edge — never colour alone. */
+  --green-surface:  color-mix(in srgb, var(--green)  9%, var(--kagaz));
+  --yellow-surface: color-mix(in srgb, var(--yellow) 9%, var(--kagaz));
+  --orange-surface: color-mix(in srgb, var(--orange) 10%, var(--kagaz));
+  --red-surface:    color-mix(in srgb, var(--red)    11%, var(--kagaz));
+
+  /* Control surfaces (buttons, inputs) one step above the panel. */
+  --control: #182538;
+  --control-hover: #1F3048;
 
   /* --- type --- */
   --font: "Anek Devanagari", system-ui, sans-serif;
@@ -64,7 +67,7 @@
   --display-size: 44px;  --display-lh: 1.10;  --display-wght: 700;  --display-wdth: 112;
   --heading-size: 24px;  --heading-lh: 1.30;  --heading-wght: 600;  --heading-wdth: 100;
   --body-size:    16px;  --body-lh:    1.55;  --body-wght:    400;  --body-wdth:    100;
-  --label-size:   13px;  --label-lh:   1.30;  --label-wght:   500;  --label-wdth:    85;
+  --label-size:   13.5px;  --label-lh:   1.30;  --label-wght:   500;  --label-wdth:    85;
   --data-size:    15px;  --data-lh:    1.20;  --data-wght:    500;  --data-wdth:     90;
 
   /* Devanagari needs vertical room for matras: +0.15 on any Hindi line. */
@@ -83,19 +86,22 @@
   --form-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* Theme hook. Light is what ships (projector-safe). Dark exists so the hook is
-   real rather than aspirational; it is not the demo default. */
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --chuna: #141A1D;
-  --syahi: #E8EDEA;
-  --dhool: #97A2A9;
-  --rekha: #2C363B;
-  --neel:  #8E9EE8;
-  --green:  #46B277;
-  --yellow: #F0C93A;
-  --orange: #F08A3E;
-  --red:    #E15353;
+/* Light theme, kept for print and bright rooms: add data-theme="light" to <html>. */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --chuna: #F2F4F1;
+  --kagaz: #FAFBF9;
+  --syahi: #1F2A30;
+  --dhool: #5D6972;
+  --rekha: #D5DBD8;
+  --neel:  #2B3A8C;
+  --green:  #2F8F5B;
+  --yellow: #C99A00;
+  --orange: #E0701F;
+  --red:    #C62D2D;
+  --jal:    #2F7FB5;
+  --control: #FFFFFF;
+  --control-hover: #F2F4F1;
 }
 
 /* The red hatch. Red is never signalled by hue alone. */

@@ -57,13 +57,14 @@
         <div class="terrain-legend" id="terrain-legend" hidden>
           <span class="terrain-legend__swatch"></span>
           <p class="terrain-legend__text">
-            Real Jaipur terrain (SRTM elevation, height ×2). Blue water is a
-            shallow-water model of this replay's recorded rain on that terrain:
-            where it would collect, not a flood forecast. Dashed outlines mark
-            the main drainage paths.
+            Real Jaipur terrain (SRTM, height ×2). Blue columns: modelled
+            rain water, column height = depth ×30. Where this replay's rain
+            would collect, not a flood forecast. Dashed: main drainage paths.
             <span class="terrain-legend__time" id="terrain-legend-time"></span>
           </p>
         </div>
+        <div class="flood-summary" id="flood-summary" hidden></div>
+        <div class="situation-others" id="situation-others" hidden></div>
       </div>
 
       <!-- RIGHT: the hero panel — the story the judge should read first. -->
@@ -71,9 +72,6 @@
         <div id="situation-hero"></div>
       </aside>
     </div>
-
-    <!-- BOTTOM: compact horizontal simulation timeline. -->
-    <div id="sim-timeline"></div>
   </section>
 
   <!-- ============================== VIEW: situations (full list) ========= -->

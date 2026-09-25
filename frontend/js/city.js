@@ -37,6 +37,10 @@ const LANDMARKS = [
   { en: "Vaishali Nagar", hi: "वैशाली नगर", lat: 26.9124, lon: 75.7370, cell: "883da21801fffff" },
   { en: "Malviya Nagar", hi: "मालवीय नगर", lat: 26.8549, lon: 75.8106, cell: "883da20a6dfffff" },
   { en: "Mansarovar", hi: "मानसरोवर", lat: 26.8505, lon: 75.7628, cell: "883da219e3fffff" },
+  { en: "Vidyadhar Nagar", hi: "विद्याधर नगर", lat: 26.9580, lon: 75.7810, cell: "883da21ab9fffff" },
+  { en: "Tonk Road", hi: "टोंक रोड", lat: 26.8830, lon: 75.8040, cell: "883da218a7fffff" },
+  { en: "Jagatpura", hi: "जगतपुरा", lat: 26.8260, lon: 75.8420, cell: "883da20b13fffff" },
+  { en: "Sanganer", hi: "सांगानेर", lat: 26.8200, lon: 75.7900, cell: "883da20b45fffff" },
 ];
 
 const reduceMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -256,6 +260,14 @@ let floodIdx = null;
 let floodShown = null;
 let simTimeUtc = null;
 
+// Water blocks from tools/flood/model_flood.py: ~68 m squares, each with its mean
+// depth (cm) per 5-sim-minute frame in `d`, starting at frame `o`. 2D draws a
+// depth-graded fill; 3D raises each block as a column whose height is the
+// water depth (exaggerated, and the legend says so) so the storm reads at a
+// glance. Style changes happen only when the frame index changes.
+const WATER_HEIGHT_X = 30;       // 3D water column height = depth x this
+const FLOOD_FROM_CM = 3;
+
 function addFloodLayer() {
   fetchFlood().then((doc) => {
     if (!doc || !doc.frames?.some((f) => f.wet)) return;
@@ -268,22 +280,46 @@ function addFloodLayer() {
       layout: { visibility: "none" },
       paint: { "fill-antialias": false, "fill-color": "rgba(0,0,0,0)" },
     }, "event-dots");
+    map.addLayer({
+      id: "flood-water-3d",
+      type: "fill-extrusion",
+      source: "flood",
+      layout: { visibility: "none" },
+      paint: { "fill-extrusion-color": "rgba(0,0,0,0)", "fill-extrusion-height": 0, "fill-extrusion-opacity": 0.82 },
+    }, "event-dots");
+    for (const id of ["flood-water", "flood-water-3d"]) {
+      map.on("click", id, (e) => showWaterInspector(e.features[0], e.lngLat));
+      map.on("mouseenter", id, () => { map.getCanvas().style.cursor = "pointer"; });
+      map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; });
+    }
     syncFlood();
   });
 }
 
-// Depth (cm) of a water cell at frame i, typed for MapLibre's expression checker.
+// Depth (cm) of a water block at frame i. `d` starts at frame `o`.
 function floodDepth(i) {
-  return ["number", ["at", i, ["array", ["get", "d"]]], 0];
+  const k = ["-", i, ["get", "o"]];
+  const d = ["array", ["get", "d"]];
+  return ["case",
+    ["<", k, 0], 0,
+    [">=", k, ["length", d]], 0,
+    ["number", ["at", k, d], 0]];
 }
 
 function floodDepthColor(i) {
   const d = floodDepth(i);
   return ["interpolate", ["linear"], d,
-    2, "rgba(150, 205, 240, 0.55)",
-    10, "rgba(95, 160, 215, 0.72)",
-    30, "rgba(40, 105, 180, 0.86)",
-    60, "rgba(18, 72, 150, 0.94)"];
+    3, "rgba(120, 200, 255, 0.50)",
+    10, "rgba(70, 165, 245, 0.70)",
+    30, "rgba(35, 120, 225, 0.84)",
+    60, "rgba(25, 80, 200, 0.92)",
+    100, "rgba(40, 50, 170, 0.96)"];
+}
+
+function floodDepthColorSolid(i) {
+  const d = floodDepth(i);
+  return ["interpolate", ["linear"], d,
+    3, "#8fd3ff", 10, "#4aa8f5", 30, "#2477e0", 60, "#1a4fc4", 100, "#2b2fa8"];
 }
 
 // Centre of the modelled water, for the 3D view when no situation is showing.
@@ -300,28 +336,136 @@ function syncFlood() {
   const frame = i >= 0 ? flood.frames[i] : null;
   if (i >= 0 && i !== floodIdx) {
     floodIdx = i;
-    map.setFilter("flood-water", [">=", floodDepth(i), 2]);
+    const wet = [">=", floodDepth(i), FLOOD_FROM_CM];
+    map.setFilter("flood-water", wet);
     map.setPaintProperty("flood-water", "fill-color", floodDepthColor(i));
+    map.setFilter("flood-water-3d", wet);
+    map.setPaintProperty("flood-water-3d", "fill-extrusion-color", floodDepthColorSolid(i));
+    map.setPaintProperty("flood-water-3d", "fill-extrusion-height", ["*", floodDepth(i), WATER_HEIGHT_X / 100]);
+    if (inspector && inspector.isOpen()) refreshWaterInspector();
   }
   // Only touch the style when something changed: in 3D every style change makes
   // MapLibre re-render the terrain's draped layers, and syncFlood runs every tick.
-  const show = Boolean(terrainOn && frame && frame.wet);
+  const show = Boolean(frame && frame.wet) ? (terrainOn ? "3d" : "2d") : "none";
   if (show !== floodShown) {
     floodShown = show;
-    map.setLayoutProperty("flood-water", "visibility", show ? "visible" : "none");
+    map.setLayoutProperty("flood-water", "visibility", show === "2d" ? "visible" : "none");
+    map.setLayoutProperty("flood-water-3d", "visibility", show === "3d" ? "visible" : "none");
   }
+  renderFloodSummary(frame);
+}
+
+function fmtInt(n) { return Math.round(n).toLocaleString("en-US"); }
+function fmtVolume(m3) {
+  return m3 >= 1e6 ? `${(m3 / 1e6).toFixed(2)}M m³` : `${fmtInt(m3)} m³`;
+}
+
+function renderFloodSummary(frame) {
   const stamp = document.getElementById("terrain-legend-time");
+  const strip = document.getElementById("flood-summary");
+  const when = frame ? toISTClock(frame.t_utc) : "";
   if (stamp) {
     stamp.textContent = !frame ? "" : frame.wet
-      ? `Modelled water at ${toISTClock(frame.t_utc)}: ${frame.wet_area_km2.toFixed(2)} km² over 2 cm.`
-      : `Modelled water at ${toISTClock(frame.t_utc)}: none yet.`;
+      ? `Modelled water at ${when}: ${frame.wet_area_km2.toFixed(1)} km² over 2 cm.`
+      : `Modelled water at ${when}: none yet.`;
   }
+  if (!strip) return;
+  if (!frame || !frame.wet) { strip.hidden = true; return; }
+  strip.hidden = false;
+  strip.innerHTML = "";
+  const title = document.createElement("p");
+  title.className = "flood-summary__title label";
+  title.textContent = `Storm water model · ${when}`;
+  strip.appendChild(title);
+  const grid = document.createElement("div");
+  grid.className = "flood-summary__grid";
+  const stats = [
+    [fmtVolume(frame.volume_m3), "water standing (cubic metres)"],
+    [`${frame.wet_area_km2.toFixed(1)} km²`, "under 2 cm or more"],
+    [`${frame.max_depth_cm.toFixed(0)} cm`, "deepest point"],
+    [fmtInt(frame.people_over_10cm_sample ?? 0), "people where water is over 10 cm (sample estimate)"],
+  ];
+  for (const [v, k] of stats) {
+    const cell = document.createElement("div");
+    cell.className = "flood-summary__stat";
+    const b = document.createElement("span"); b.className = "flood-summary__value data"; b.textContent = v;
+    const l = document.createElement("span"); l.className = "flood-summary__key"; l.textContent = k;
+    cell.appendChild(b); cell.appendChild(l);
+    grid.appendChild(cell);
+  }
+  strip.appendChild(grid);
+  const hint = document.createElement("p");
+  hint.className = "flood-summary__hint";
+  hint.textContent = "Click any water cell for its depth, volume and elevation.";
+  strip.appendChild(hint);
+}
+
+// ---- water inspector (Jal Drishti-style grid readout) ----
+let inspector = null;
+let inspected = null;
+function showWaterInspector(feature, lngLat) {
+  if (!feature || !flood) return;
+  inspected = { props: feature.properties, lngLat };
+  if (!inspector) {
+    inspector = new maplibregl.Popup({ className: "nn-water-popup", closeButton: true, maxWidth: "300px", offset: 8 });
+  }
+  inspector.setLngLat(lngLat);
+  refreshWaterInspector();
+  if (!inspector.isOpen()) inspector.addTo(map);
+}
+
+function refreshWaterInspector() {
+  if (!inspector || !inspected || !flood) return;
+  const p = inspected.props;
+  // MapLibre hands array properties back as JSON strings from queried features.
+  const d = typeof p.d === "string" ? JSON.parse(p.d) : p.d;
+  const o = Number(p.o) || 0;
+  const i = floodFrameIndex(flood, simTimeUtc);
+  const depthAt = (k) => (k - o >= 0 && k - o < d.length ? d[k - o] : 0);
+  const now = i >= 0 ? depthAt(i) : 0;
+  // Peak so far: never a depth the replay hasn't reached yet.
+  let peakK = 0;
+  for (let k = 0; k <= Math.max(0, i); k++) if (depthAt(k) > depthAt(peakK)) peakK = k;
+  const peak = depthAt(peakK);
+  const blockM = flood.params.display_block_m || 68;
+  const area = blockM * blockM;
+  const z = Number(p.z);
+  const rows = [
+    ["Grid cell", p.id],
+    ["Ground elevation", `${z.toFixed(1)} m`],
+    ["Water depth now", `${now} cm`],
+    ["Water surface", `${(z + now / 100).toFixed(2)} m`],
+    ["Water collected now", `${fmtInt(area * now / 100)} m³`],
+    ["Deepest so far", peak ? `${peak} cm at ${toISTClock(flood.frames[peakK].t_utc)}` : "—"],
+    ["Cell area", `${fmtInt(area)} m²`],
+    ["People living here", `~${fmtInt(Number(p.p))} (sample estimate)`],
+  ];
+  const wrap = document.createElement("div");
+  wrap.className = "nn-water";
+  const h = document.createElement("p");
+  h.className = "nn-water__title";
+  h.textContent = "Modelled water · this cell";
+  wrap.appendChild(h);
+  const dl = document.createElement("dl");
+  dl.className = "nn-water__rows";
+  for (const [k, v] of rows) {
+    const dt = document.createElement("dt"); dt.textContent = k;
+    const dd = document.createElement("dd"); dd.textContent = v;
+    dl.appendChild(dt); dl.appendChild(dd);
+  }
+  wrap.appendChild(dl);
+  const note = document.createElement("p");
+  note.className = "nn-water__note";
+  note.textContent = "Shallow-water model of this replay's rain on real SRTM terrain. Indicative, not a forecast.";
+  wrap.appendChild(note);
+  inspector.setDOMContent(wrap);
 }
 
 function setTerrainMode(on, focus) {
   terrainOn = on;
   map.setTerrain(on ? { source: "dem-terrain", exaggeration: TERRAIN_EXAGGERATION } : null);
   map.setLayoutProperty("drainage-edge", "visibility", on ? "visible" : "none");
+  if (map.getLayer("h3-columns")) map.setLayoutProperty("h3-columns", "visibility", on ? "visible" : "none");
   syncFlood();
   const target = on
     // Face north-east so the Nahargarh/Amer ridges sit behind the situation.
@@ -393,6 +537,26 @@ function buildStyle(palette) {
         source: "h3-cells",
         paint: { "line-color": palette.syahi, "line-width": 0.6, "line-opacity": 0.10 },
       },
+      // --- H3 layer: city activity. Every cell with events in the last hour of
+      // replay time gets a soft tint by event count, so the whole city shows
+      // life, not only the few cells inside a situation. Not a status colour. ---
+      {
+        id: "h3-activity",
+        type: "fill",
+        source: "h3-cells",
+        filter: [">", ["get", "act"], 0],
+        paint: {
+          "fill-color": palette.jal,
+          "fill-opacity": ["interpolate", ["linear"], ["get", "act"], 1, 0.10, 3, 0.20, 6, 0.32, 12, 0.42],
+        },
+      },
+      {
+        id: "h3-activity-edge",
+        type: "line",
+        source: "h3-cells",
+        filter: [">", ["get", "act"], 0],
+        paint: { "line-color": palette.jal, "line-width": 0.8, "line-opacity": 0.45 },
+      },
       // --- H3 layer: status fill (only cells with an active situation) ---
       {
         id: "h3-fill",
@@ -421,7 +585,23 @@ function buildStyle(palette) {
             "green", palette.greenEdge, "yellow", palette.yellowEdge,
             "orange", palette.orangeEdge, "red", palette.redEdge,
             "rgba(0,0,0,0)"],
-          "line-width": 1.3,
+          "line-width": 1.8,
+        },
+      },
+      // --- 3D only: situation cells rise as translucent columns, height by
+      // alert level, so every live situation is visible across the city ---
+      {
+        id: "h3-columns",
+        type: "fill-extrusion",
+        source: "h3-cells",
+        filter: ["!=", ["get", "level"], "none"],
+        layout: { visibility: "none" },
+        paint: {
+          "fill-extrusion-color": ["match", ["get", "level"],
+            "green", palette.green, "yellow", palette.yellow,
+            "orange", palette.orange, "red", palette.red, palette.dhool],
+          "fill-extrusion-height": ["match", ["get", "level"], "yellow", 90, "orange", 170, "red", 260, 40],
+          "fill-extrusion-opacity": 0.5,
         },
       },
       // --- raw event dots: cells with events but no situation get a dot,
@@ -539,12 +719,28 @@ function computeCellRollup() {
 
 let lastRollup = new Map();
 
+// Events per cell over the last hour of replay time (activity tint).
+const ACTIVITY_WINDOW_MS = 60 * 60 * 1000;
+function computeActivity() {
+  const counts = new Map();
+  const now = simTimeUtc ? Date.parse(simTimeUtc) : null;
+  if (now == null) return counts;
+  for (const ev of eventsById.values()) {
+    const t = Date.parse(ev.start_utc);
+    if (!(t <= now && now - t <= ACTIVITY_WINDOW_MS) || !ev.h3_cell) continue;
+    counts.set(ev.h3_cell, (counts.get(ev.h3_cell) || 0) + 1);
+  }
+  return counts;
+}
+
 function renderCellFills() {
   lastRollup = computeCellRollup();
+  const activity = computeActivity();
   for (const [cellId, feature] of cellFeaturesById) {
     const info = lastRollup.get(cellId);
     feature.properties.level = info ? info.level : "none";
     feature.properties.situationId = info ? info.situationId : null;
+    feature.properties.act = activity.get(cellId) || 0;
   }
   const src = map.getSource("h3-cells");
   if (src) src.setData({ type: "FeatureCollection", features: Array.from(cellFeaturesById.values()) });
@@ -834,19 +1030,29 @@ function removeSituationVisuals(situationId) {
 }
 
 // ------------------------------------------------------------ WS handlers
+let activityBucket = null;
 function onTick(tick) {
   simTimeUtc = tick.sim_time_utc;
   syncFlood();
+  const bucket = Math.floor(Date.parse(simTimeUtc) / (5 * 60 * 1000));
+  if (bucket !== activityBucket) { activityBucket = bucket; scheduleActivity(); }
   // City-wide alert level, rendered as given — feeds the status block.
   // pulse_score is not shown here; naadi.js renders it at the strip's
   // right edge from this same tick message (tick.city_pulse_score).
   renderStatusBlock("#status-block", tick.city_alert_level, situationsSummaryText(true));
 }
 
+let activityTimer = null;
+function scheduleActivity() {
+  if (activityTimer) return;
+  activityTimer = setTimeout(() => { activityTimer = null; renderCellFills(); }, 1500);
+}
+
 function onEvent(event) {
   eventsById.set(event.event_id, event);
   renderEventDots();
   updateSimulatedBanner();
+  scheduleActivity();
 }
 
 function onSituation(situation, action) {
@@ -921,13 +1127,21 @@ async function init() {
     addBasemap();
     addTerrainSources();
     window.addEventListener("hero:changed", onHeroChanged);
+    window.addEventListener("situation:focus", (ev) => {
+      const c = ev.detail?.situation?.zone?.centroid;
+      if (!c) return;
+      heroFocus = [c.lon, c.lat];
+      lastUserMoveAt = Date.now();
+      map.easeTo({ center: heroFocus, zoom: Math.max(map.getZoom(), terrainOn ? 13.1 : 12.6),
+        duration: reduceMotion ? 0 : 1400, easing: formEase });
+    });
     window.dispatchEvent(new CustomEvent("hero:request"));
     const cells = allBboxCells();
     cellFeaturesById = new Map(cells.map((cell) => [cell, {
       type: "Feature",
       id: cell,
       geometry: { type: "Polygon", coordinates: [ringToLngLat(cell)] },
-      properties: { cell, level: "none", situationId: null },
+      properties: { cell, level: "none", situationId: null, act: 0 },
     }]));
 
     map.addImage("hatch-red", buildHatchImage(palette.redHatch));

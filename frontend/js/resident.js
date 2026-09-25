@@ -89,7 +89,9 @@ const ALERT_AREAS = [
   { en: "Jal Mahal", hi: "जल महल" }, { en: "Albert Hall Museum", hi: "अल्बर्ट हॉल" },
   { en: "Jaipur Junction", hi: "जयपुर जंक्शन" }, { en: "Sindhi Camp", hi: "सिंधी कैंप" },
   { en: "Vaishali Nagar", hi: "वैशाली नगर" }, { en: "Malviya Nagar", hi: "मालवीय नगर" },
-  { en: "Mansarovar", hi: "मानसरोवर" },
+  { en: "Mansarovar", hi: "मानसरोवर" }, { en: "Vidyadhar Nagar", hi: "विद्याधर नगर" },
+  { en: "Tonk Road", hi: "टोंक रोड" }, { en: "Jagatpura", hi: "जगतपुरा" },
+  { en: "Sanganer", hi: "सांगानेर" },
 ];
 const LEVEL_ORDER = ["green", "yellow", "orange", "red"];
 const ALERT_STORAGE_KEY = "nagarnaadi.alertArea";

@@ -31,7 +31,7 @@ let recentEventIds = [];            // small ring buffer for "Send a duplicate r
 const MAX_RECENT_EVENTS = 200;
 let lastSim = null;
 
-// "Jump to 6:25pm — rain begins" -> { time: "6:25 PM", text: "Rain begins", minutes }
+// "Jump to 6:10pm — storm reaches Mansarovar" -> { time: "6:10 PM", text: "Storm reaches Mansarovar", minutes }
 const MARKERS = BOOKMARKS.map((bm) => {
   const m = /^Jump to (\d{1,2}):(\d{2})(am|pm)\s+—\s+(.+)$/i.exec(bm.label_en);
   if (!m) return { ...bm, time: "", text: bm.label_en, minutes: null };
