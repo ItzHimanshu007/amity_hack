@@ -8,7 +8,7 @@
 
 import {
   fetchState, fetchRaw, fetchScorecard, sendControl, connectStream,
-  FEED_IDS, FEED_LABELS, CATEGORY_LABELS, toISTClock, formatDuration,
+  FEED_IDS, FEED_LABELS, CATEGORY_LABELS, toISTClock,
 } from "./api.js";
 
 let feedHealthEl, dataRoomEl;
@@ -321,15 +321,9 @@ function renderScorecard(card) {
   addRow(primary, "Detected", `${card.matched} of ${card.truth_situations} real situations found`);
   addRow(primary, "False links", String(card.false_positives));
   addRow(primary, "Decoys ignored", `${card.decoys_correctly_ignored} of ${card.decoys_planted}`);
-  addRow(primary, "Lead time", leadTimeText(card.median_detection_lag_sec));
+  // median_detection_lag_sec is left out: the backend's own detection_lag_caveat
+  // marks it as a proxy (created_utc), not true detection time.
   el.appendChild(primary);
-
-  if (card.detection_lag_caveat) {
-    const caveat = document.createElement("p");
-    caveat.className = "scorecard__caveat";
-    caveat.textContent = card.detection_lag_caveat;
-    el.appendChild(caveat);
-  }
 
   const secondary = document.createElement("dl");
   secondary.className = "scorecard__secondary";
@@ -347,12 +341,6 @@ function addRow(dl, term, value) {
   dd.textContent = value;
   dl.appendChild(dt);
   dl.appendChild(dd);
-}
-
-function leadTimeText(sec) {
-  if (sec == null) return "Not available";
-  if (sec >= 0) return `Typically noticed ${formatDuration(sec)} after it started`;
-  return `Typically noticed ${formatDuration(-sec)} before it fully unfolded`;
 }
 
 function formatPct(v) {
