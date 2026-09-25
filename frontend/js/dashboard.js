@@ -19,7 +19,7 @@
 import {
   fetchState, fetchScorecard, connectStream, selectSituation,
   CATEGORY_LABELS, FEED_IDS, FEED_LABELS, ACTION_BY_CATEGORY, toISTClock, formatDuration,
-  fetchTerrain, isFloodSituation, LANDMARK_BY_CELL,
+  fetchTerrain, isFloodSituation, LANDMARK_BY_CELL, fetchFlood, floodFrameIndex,
 } from "./api.js";
 
 // CONTRACT.md §B "Emitted by" column, mirrored (closed enum — see api.js's
@@ -250,6 +250,28 @@ let terrain = null;
 const DRAIN_PCT = 60;   // carries more runoff than 60% of the city's areas
 const LOW_M = -2;       // sits at least 2 m below its surroundings
 const RAISED_M = 2;     // sits at least 2 m above its surroundings
+
+let flood = null;
+let floodFrame = -1;
+
+// The rain-on-terrain model's state for this situation's areas at the replay's
+// current time (never a later peak). Context only, like the terrain line.
+function floodModelText(situation) {
+  if (!flood || !isFloodSituation(situation) || floodFrame < 0) return null;
+  const frame = flood.frames[floodFrame];
+  const when = toISTClock(frame.t_utc);
+  const parts = [];
+  let deepest = 0;
+  let unnamed = 0;
+  for (const c of situation.zone?.h3_cells || []) {
+    const m = flood.cells[c];
+    const pct = m ? m.over10_pct_by_frame[floodFrame] : 0;
+    deepest = Math.max(deepest, m ? m.max_depth_cm_by_frame[floodFrame] : 0);
+    if (pct >= 0.5) parts.push(`${Math.round(pct)}% of ${LANDMARK_BY_CELL[c] || (unnamed++ ? "another area" : "one area")}`);
+  }
+  if (!parts.length) return `Rain model at ${when}: no water over 10 cm in these areas.`;
+  return `Rain model at ${when}: water over 10 cm on ${parts.join(" and ")} (deepest ${Math.round(deepest)} cm).`;
+}
 
 function terrainContext(situation) {
   if (!terrain || !isFloodSituation(situation)) return null;
@@ -551,6 +573,13 @@ function renderHero() {
     const tLine = document.createElement("p");
     tLine.className = "situation-hero__terrain";
     tLine.textContent = terrainText;
+    const modelText = floodModelText(situation);
+    if (modelText) {
+      const m = document.createElement("span");
+      m.className = "situation-hero__flood-model";
+      m.textContent = modelText;
+      tLine.appendChild(m);
+    }
     el.appendChild(tLine);
   }
 
@@ -662,6 +691,8 @@ function renderTimeline(situation) {
 
 function onTick(tick) {
   lastTick = tick;
+  const f = floodFrameIndex(flood, tick.sim_time_utc);
+  if (f !== floodFrame) { floodFrame = f; renderHero(); }
   maybeRefreshRejected(tick.sim_time_utc);
   connected = true;
   renderTopbarStatus();
@@ -702,6 +733,7 @@ async function init() {
   }
 
   fetchTerrain().then((t) => { terrain = t; renderHero(); });
+  fetchFlood().then((d) => { flood = d; floodFrame = floodFrameIndex(d, lastTick.sim_time_utc); renderHero(); });
   fetchScorecard().then(renderProofStrip).catch(() => { /* strip stays hidden */ });
   connectStream(onTick, null, onSituation, onFeedHealth);
 }

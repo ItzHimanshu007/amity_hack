@@ -19,7 +19,7 @@
 // situation has the highest pulse_score touching that cell/city — it never
 // recomputes a level from a number.
 
-import { fetchState, connectStream, fetchSituation, sendControl, fetchTerrain, isFloodSituation } from "./api.js";
+import { fetchState, connectStream, fetchSituation, sendControl, fetchTerrain, isFloodSituation, fetchFlood, floodFrameIndex, toISTClock } from "./api.js";
 import { renderStatusBlock } from "./statusblock.js";
 
 const H3_RES = 8;
@@ -86,7 +86,6 @@ function readPalette() {
     greenEdge: v("var(--green-edge)"), yellowEdge: v("var(--yellow-edge)"), orangeEdge: v("var(--orange-edge)"), redEdge: v("var(--red-edge)"),
     redHatch: v("color-mix(in srgb, var(--red) 28%, transparent)"),
     jal: v("var(--jal)"),
-    jalFill: v("color-mix(in srgb, var(--jal) 30%, transparent)"),
     shade: v("color-mix(in srgb, var(--syahi) 55%, transparent)"),
     light: v("color-mix(in srgb, var(--chuna) 60%, transparent)"),
   };
@@ -213,7 +212,9 @@ const autoTerrainDone = new Set();
 
 function addTerrainSources() {
   const dem = { type: "raster-dem", tiles: [TERRAIN_TILES], encoding: "terrarium", tileSize: 256, minzoom: 10, maxzoom: 13, bounds: TERRAIN_BOUNDS };
-  map.addSource("dem-terrain", dem);
+  // The 3D mesh from z12 is ~4x lighter to render than z13 and looks the same
+  // at 2x height; the hillshade keeps full z13 detail.
+  map.addSource("dem-terrain", { ...dem, maxzoom: 12 });
   map.addSource("dem-hillshade", { ...dem });
   map.addLayer({
     id: "hillshade",
@@ -228,18 +229,11 @@ function addTerrainSources() {
   }, "h3-grid-line");
   map.addSource("drainage", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
   map.addLayer({
-    id: "drainage-fill",
-    type: "fill",
-    source: "drainage",
-    layout: { visibility: "none" },
-    paint: { "fill-color": palette.jalFill },
-  }, "h3-fill");
-  map.addLayer({
     id: "drainage-edge",
     type: "line",
     source: "drainage",
     layout: { visibility: "none" },
-    paint: { "line-color": palette.jal, "line-width": 1, "line-opacity": 0.6 },
+    paint: { "line-color": palette.jal, "line-width": 1, "line-opacity": 0.45, "line-dasharray": [2, 2] },
   }, "h3-fill");
   fetchTerrain().then((terrain) => {
     if (!terrain) return;
@@ -248,15 +242,90 @@ function addTerrainSources() {
       .map(([cell]) => ({ type: "Feature", geometry: { type: "Polygon", coordinates: [ringToLngLat(cell)] }, properties: {} }));
     map.getSource("drainage").setData({ type: "FeatureCollection", features });
   });
+  addFloodLayer();
+}
+
+// ------------------------------------------------------------ flood model --
+// Modelled water from tools/flood/model_flood.py: ~34 m cells, each carrying
+// its depth (cm) for every 5-sim-minute frame. The fill reads the current
+// frame's depth with a style expression, so moving the clock is a cheap
+// filter/paint change. Vector fills (not an image source, which MapLibre
+// re-renders on 3D terrain every frame) keep 3D smooth. 3D mode only.
+let flood = null;
+let floodIdx = null;
+let floodShown = null;
+let simTimeUtc = null;
+
+function addFloodLayer() {
+  fetchFlood().then((doc) => {
+    if (!doc || !doc.frames?.some((f) => f.wet)) return;
+    flood = doc;
+    map.addSource("flood", { type: "geojson", data: "assets/flood/water.geojson" });
+    map.addLayer({
+      id: "flood-water",
+      type: "fill",
+      source: "flood",
+      layout: { visibility: "none" },
+      paint: { "fill-antialias": false, "fill-color": "rgba(0,0,0,0)" },
+    }, "event-dots");
+    syncFlood();
+  });
+}
+
+// Depth (cm) of a water cell at frame i, typed for MapLibre's expression checker.
+function floodDepth(i) {
+  return ["number", ["at", i, ["array", ["get", "d"]]], 0];
+}
+
+function floodDepthColor(i) {
+  const d = floodDepth(i);
+  return ["interpolate", ["linear"], d,
+    2, "rgba(150, 205, 240, 0.55)",
+    10, "rgba(95, 160, 215, 0.72)",
+    30, "rgba(40, 105, 180, 0.86)",
+    60, "rgba(18, 72, 150, 0.94)"];
+}
+
+// Centre of the modelled water, for the 3D view when no situation is showing.
+function floodFocus() {
+  const i = flood ? floodFrameIndex(flood, simTimeUtc) : -1;
+  if (i < 0 || !flood.frames[i].wet) return null;
+  const [tl, , br] = flood.bounds;
+  return [(tl[0] + br[0]) / 2, (tl[1] + br[1]) / 2];
+}
+
+function syncFlood() {
+  if (!flood || !map.getLayer("flood-water")) return;
+  const i = floodFrameIndex(flood, simTimeUtc);
+  const frame = i >= 0 ? flood.frames[i] : null;
+  if (i >= 0 && i !== floodIdx) {
+    floodIdx = i;
+    map.setFilter("flood-water", [">=", floodDepth(i), 2]);
+    map.setPaintProperty("flood-water", "fill-color", floodDepthColor(i));
+  }
+  // Only touch the style when something changed: in 3D every style change makes
+  // MapLibre re-render the terrain's draped layers, and syncFlood runs every tick.
+  const show = Boolean(terrainOn && frame && frame.wet);
+  if (show !== floodShown) {
+    floodShown = show;
+    map.setLayoutProperty("flood-water", "visibility", show ? "visible" : "none");
+  }
+  const stamp = document.getElementById("terrain-legend-time");
+  if (stamp) {
+    stamp.textContent = !frame ? "" : frame.wet
+      ? `Modelled water at ${toISTClock(frame.t_utc)}: ${frame.wet_area_km2.toFixed(2)} km² over 2 cm.`
+      : `Modelled water at ${toISTClock(frame.t_utc)}: none yet.`;
+  }
 }
 
 function setTerrainMode(on, focus) {
   terrainOn = on;
   map.setTerrain(on ? { source: "dem-terrain", exaggeration: TERRAIN_EXAGGERATION } : null);
-  for (const id of ["drainage-fill", "drainage-edge"]) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  map.setLayoutProperty("drainage-edge", "visibility", on ? "visible" : "none");
+  syncFlood();
   const target = on
     // Face north-east so the Nahargarh/Amer ridges sit behind the situation.
-    ? { pitch: 62, bearing: 32, zoom: 12.3, ...(focus ? { center: focus } : {}) }
+    ? { pitch: 60, bearing: 32, zoom: 13.1, ...(focus ? { center: focus } : {}) }
     : { pitch: 0, bearing: 0, zoom: MAP_ZOOM, center: MAP_CENTER };
   if (reduceMotion) map.jumpTo(target);
   else map.easeTo({ ...target, duration: 2200, easing: formEase });
@@ -278,7 +347,7 @@ class TerrainControl {
     terrainBtn.textContent = "3D terrain";
     terrainBtn.setAttribute("aria-pressed", "false");
     terrainBtn.title = "Show real Jaipur terrain in 3D";
-    terrainBtn.addEventListener("click", () => setTerrainMode(!terrainOn, heroFocus));
+    terrainBtn.addEventListener("click", () => setTerrainMode(!terrainOn, heroFocus || floodFocus()));
     wrap.appendChild(terrainBtn);
     return wrap;
   }
@@ -592,13 +661,11 @@ function makeNumberedMarker(step, lngLat, situationId) {
   const el = document.createElement("div");
   el.className = "nn-dot data";
   el.textContent = String(step);
-  el.style.opacity = "0";
   el.addEventListener("click", (ev) => {
     ev.stopPropagation();
     dispatchSituationSelected(situationId);
   });
   const marker = new maplibregl.Marker({ element: el }).setLngLat(lngLat).addTo(map);
-  requestAnimationFrame(() => { el.style.opacity = "1"; });
   return marker;
 }
 
@@ -768,6 +835,8 @@ function removeSituationVisuals(situationId) {
 
 // ------------------------------------------------------------ WS handlers
 function onTick(tick) {
+  simTimeUtc = tick.sim_time_utc;
+  syncFlood();
   // City-wide alert level, rendered as given — feeds the status block.
   // pulse_score is not shown here; naadi.js renders it at the strip's
   // right edge from this same tick message (tick.city_pulse_score).
@@ -870,6 +939,7 @@ async function init() {
     // Initial snapshot.
     try {
       const state = await fetchState();
+      simTimeUtc = state.sim && state.sim.sim_time_utc;
       for (const ev of state.events || []) eventsById.set(ev.event_id, ev);
       for (const sit of state.situations || []) situationsById.set(sit.situation_id, sit);
       renderCellFills();

@@ -54,11 +54,16 @@
       <!-- CENTER: the existing Jaipur MapLibre/H3 map, untouched logic. -->
       <div class="dashboard__center">
         <section id="map"></section>
-        <p class="terrain-legend" id="terrain-legend" hidden>
+        <div class="terrain-legend" id="terrain-legend" hidden>
           <span class="terrain-legend__swatch"></span>
-          Real Jaipur terrain (SRTM elevation, height ×2). Blue areas are where
-          rainwater drains to. This is terrain flow, not a flood forecast.
-        </p>
+          <p class="terrain-legend__text">
+            Real Jaipur terrain (SRTM elevation, height ×2). Blue water is a
+            shallow-water model of this replay's recorded rain on that terrain:
+            where it would collect, not a flood forecast. Dashed outlines mark
+            the main drainage paths.
+            <span class="terrain-legend__time" id="terrain-legend-time"></span>
+          </p>
+        </div>
       </div>
 
       <!-- RIGHT: the hero panel — the story the judge should read first. -->

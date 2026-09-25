@@ -152,9 +152,11 @@ python -m api.verify_api   # in a second terminal, backend running: "All checks 
 If the backend's startup log says `0 events` or `0 situations`, it was started before the
 pipeline finished: stop it and start it again.
 
-The 3D terrain assets in `frontend/assets/terrain/` are committed, so they need no step
-here. `tools/terrain/build_terrain.py` regenerates them from real elevation tiles if ever
-needed.
+The 3D terrain assets in `frontend/assets/terrain/` and the rain-on-terrain flood model
+output in `frontend/assets/flood/` are committed, so they need no step here. To regenerate
+them: `tools/terrain/build_terrain.py` (real elevation tiles) and
+`tools/flood/model_flood.py --check` (the shallow-water model; see
+[docs/FLOOD_MODEL.md](docs/FLOOD_MODEL.md)).
 
 To start over, delete the folder contents and regenerate; nothing in `/data` is precious.
 

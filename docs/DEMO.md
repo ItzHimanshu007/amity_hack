@@ -20,7 +20,7 @@ Four layers, and every screen maps to one of them:
 |---|---|---|
 | **Observed** | What the feeds actually report: rain, complaints, power, buses, air | Feed list, raw data in the Data room |
 | **Inferred** | What NagarNaadi believes may be connected | Hero: situation, evidence chain, confidence and its reason |
-| **Contextual** | What real terrain says about it | 3D terrain, drainage, "Terrain context" line |
+| **Contextual** | What real terrain says about it | 3D terrain, modelled water, "Terrain context" lines |
 | **Rejected** | What it deliberately refuses to connect | "Probably unrelated" |
 
 On data honesty, say exactly this. Never say "nothing on screen is made up".
@@ -66,8 +66,8 @@ Times in brackets are measured from pressing Play in the rehearsal.
 |---|---|---|---|
 | 1 | **Start.** Tab 1 at 7:05 PM, 2D. Open the console, press **▶ Play**, collapse the console. | "Nothing unusual right now". | "Jaipur has a weather feed, a complaints register, a power grid feed, bus GPS and air sensors. Five formats, five speeds, no shared IDs. Nobody connects them." |
 | 2 | Wait (≈ 28 s). | The hero fills: **"Heavy rain near Jaipur Junction + 1 nearby area is holding up buses"**, orange. | "The moment independent feeds agree, NagarNaadi forms a situation." |
-| 3 | Wait about 2 s for the map to tilt into 3D on its own. **Let the tilt finish, then Pause** in the console. | Real terrain in 3D, Aravalli ridges behind Jaipur Junction; blue drainage; the legend: *"This is terrain flow, not a flood forecast."* | "When a flood-related situation emerges, NagarNaadi brings in real terrain context to help interpret it. It does not change the confidence or claim causation." |
-| 4 | Point at **Terrain context**. | *"Terrain only partly explains this: local drainage likely matters. Sindhi Camp sits 5 m above its surroundings; Jaipur Junction is on a drainage path (more runoff than 70% of the city)."* | "We checked the situation against real elevation, and we tell you it only partly fits. The terrain is context, not a magic explanation." |
+| 3 | Wait about 2 s for the map to tilt into 3D on its own. **Let the tilt finish, then Pause** in the console. | Real terrain in 3D, ridges behind; **blue water** along the streets around the situation. The legend: *"Modelled water at 7:30 pm: 0.92 km² over 2 cm"*, *"… where it would collect, not a flood forecast."* | "When a flood-related situation emerges, NagarNaadi brings in real terrain context. That blue is a shallow-water model: this replay's recorded rain routed over real Jaipur elevation. It doesn't change the confidence or claim causation." |
+| 4 | Point at **Terrain context**. | *"Terrain only partly explains this: local drainage likely matters. Sindhi Camp sits 5 m above its surroundings; Jaipur Junction is on a drainage path (more runoff than 70% of the city)."* Then **"Rain model at 7:30 pm: water over 10 cm on 5% of Sindhi Camp and 5% of Jaipur Junction (deepest 15 cm)."** | "We checked the situation against real elevation and a physical rain model, and we tell you it only partly fits. Context, not a magic explanation." |
 | 5 | Point at the chain. | Heavy rain → Waterlogging (12 min later) → Bus running late (17 min) → Power cut → Signal not working → Bus running late (15 min). Then ✓ Same geographic area · ✓ Correct temporal sequence · ✓ Historical relationship · ✓ Independent feed corroboration. | "Four feeds, in the right order, in adjacent areas, a pairing that historically happens about once every 10 hours here." |
 | 6 | Point at the confidence line. | **MEDIUM CONFIDENCE** · *"Civic complaints feed stale 6 min, confidence lowered"* · *"Still growing · 7 of ~12 reports so far"*. | "Not high, and it says why: one feed is late. It's also still collecting evidence." |
 | 7 | Click **"… other patterns in these areas rejected as coincidence · see why"**. | The Situations view scrolls to **Probably unrelated**. The first card: *"Waterlogging and Extreme heat … overlapped in time and space but neither is a known cause of the other."* | "This is what NagarNaadi **refused** to connect. Heat and waterlogging showed up together here, but there's no mechanism, so no link." |
@@ -81,8 +81,8 @@ Times in brackets are measured from pressing Play in the rehearsal.
 
 ### Things to avoid on stage
 
-- **Don't jump straight to 7:30 PM.** A jump shows the situation without the 3D reveal. If
-  that happens, press **3D terrain** on the map.
+- **Don't reload the page after jumping past 7:10 PM.** The 3D reveal only fires when the
+  situation arrives while the page is open. If the map is flat, press **3D terrain** on the map.
 - **Don't click during the 2-second tilt.** On a weak laptop GPU the animation is heavy; wait
   for it to settle.
 - **Don't refresh after stopping a feed.** The lowered confidence arrives over the live stream;
@@ -90,8 +90,8 @@ Times in brackets are measured from pressing Play in the rehearsal.
 - **Don't scroll to the bottom of the Data room.** Its full scorecard includes a detection-lag
   figure the backend itself marks as an approximation, with internal notes. Use the
   **How we know it works** box on the Live map for the numbers.
-- **Don't call the blue areas a flood forecast.** They're where rainwater drains, from real
-  elevation.
+- **Don't call the blue water a flood forecast.** It's where this replay's rain would collect
+  on real terrain. The depths are indicative (30 m elevation), the pattern is the point.
 
 ## Slide outline (6 slides)
 
@@ -115,7 +115,8 @@ Times in brackets are measured from pressing Play in the rehearsal.
    - Graceful degradation.
    - PII masked on read.
    - "Possibly linked", never "caused".
-   - Terrain from real elevation (engine adapted from Jal Drishti).
+   - Terrain from real elevation (engine adapted from Jal Drishti), plus a rain-on-terrain
+     shallow-water model (`docs/FLOOD_MODEL.md`).
 6. **Who it's for.**
    - Residents: Hindi and English, area alerts.
    - City operations staff: the chain and evidence.
@@ -128,6 +129,14 @@ Times in brackets are measured from pressing Play in the rehearsal.
   context. NagarNaadi's situation is formed from the cross-feed evidence; terrain is additional
   context that helps us judge whether that situation is geographically plausible. Here it only
   partly is, and we say so."
+- **"Is the flood simulation real?"** It's a physical model on real terrain, driven by the
+  replay's (synthetic) rain:
+  - It uses the local-inertial shallow-water scheme from LISFLOOD-FP on SRTM elevation.
+  - Drains remove 15 mm/h (the CPHEEO design range) and infiltration 7 mm/h.
+  - Mass balance is exact.
+  - Sanity check: under an even 60 mm storm, 5 of 6 places reported as Jaipur waterlogging
+    hotspots collect more water than the city average (p = 0.003 against random places).
+  - Limits: 30 m elevation, drains as a uniform sink. Details in `docs/FLOOD_MODEL.md`.
 - **"Is the data real?"** The civic feeds are synthetic, as the problem statement allows, and
   labelled "Simulated data" on screen. They come in five deliberately messy formats:
   - IST text dates;

@@ -99,6 +99,26 @@ export const LANDMARK_BY_CELL = {
   "883da21801fffff": "Vaishali Nagar", "883da20a6dfffff": "Malviya Nagar", "883da219e3fffff": "Mansarovar",
 };
 
+// Modelled surface water for this replay (tools/flood/model_flood.py): rain from
+// the replay's weather gauges routed over the real terrain. Context only.
+let floodPromise = null;
+export function fetchFlood() {
+  if (!floodPromise) {
+    floodPromise = fetch("assets/flood/flood.json")
+      .then((r) => (r.ok ? r.json() : null))
+      .catch(() => null);
+  }
+  return floodPromise;
+}
+
+// Index of the model frame covering a sim time (frames every frame_sec from frames[0]).
+export function floodFrameIndex(flood, simTimeUtc) {
+  if (!flood || !simTimeUtc || !flood.frames?.length) return -1;
+  const t0 = Date.parse(flood.frames[0].t_utc);
+  const i = Math.floor((Date.parse(simTimeUtc) - t0) / 1000 / flood.params.frame_sec);
+  return Math.max(-1, Math.min(flood.frames.length - 1, i));
+}
+
 // Flood-type = the chain involves rain or waterlogging; terrain is only
 // described for these.
 export function isFloodSituation(situation) {

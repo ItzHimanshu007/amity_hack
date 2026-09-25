@@ -85,7 +85,9 @@ html, body {
 
 /* Landmark label (bilingual, always-on — no hover state, no icon). */
 .nn-landmark {
-  position: relative;
+  /* absolute, like every MapLibre marker: "relative" put the labels in normal
+     flow, so each one was offset by the height of the labels before it. */
+  position: absolute;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -132,7 +134,8 @@ html, body {
   justify-content: center;
   cursor: pointer;
   user-select: none;
-  transition: opacity 0.2s linear;
+  /* no opacity transition: in 3D, MapLibre sets marker opacity every frame for
+     terrain occlusion, and a transition restarts each time (drops to ~2 fps). */
 }
 
 /* ------------------------------------------------------------- #status-block
@@ -1004,9 +1007,11 @@ body {
   width: 10px;
   height: 10px;
   margin-top: 2px;
-  background: color-mix(in srgb, var(--jal) 30%, transparent);
-  border: 1px solid var(--jal);
+  background: color-mix(in srgb, var(--jal) 80%, white);
+  border: 1px solid color-mix(in srgb, var(--jal) 70%, black);
 }
+.terrain-legend__text { margin: 0; }
+.terrain-legend__time { display: block; margin-top: 2px; font-weight: 600; font-variant-numeric: tabular-nums; }
 .dashboard__center #map {
   height: var(--dash-h);
   width: 100%;
@@ -1246,6 +1251,7 @@ body {
   font-size: 12px;
   line-height: 1.35;
 }
+.situation-hero__flood-model { display: block; margin-top: 2px; font-weight: 600; }
 .situation-hero__rejected {
   appearance: none;
   display: block;
