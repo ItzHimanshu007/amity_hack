@@ -253,7 +253,7 @@ export const BOOKMARKS = [
   { id: "window_start",         label_en: "Jump to 5:30pm — simulation start" },
   { id: "storm_onset",          label_en: "Jump to 6:25pm — rain begins" },
   { id: "gt003_onset",          label_en: "Jump to 6:35pm — smoke reported" },
-  { id: "first_situation",      label_en: "Jump to 6:50pm — first situation forms" },
+  { id: "first_situation",      label_en: "Jump to 6:50pm — first cascade reports" },
   { id: "gt002_onset",          label_en: "Jump to 6:50pm — power cut begins" },
   { id: "feed_kill_demo_point", label_en: "Jump to 7:05pm — feed-outage demo point" },
   { id: "peak_activity",        label_en: "Jump to 7:30pm — peak activity" },

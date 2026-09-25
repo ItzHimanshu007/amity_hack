@@ -931,6 +931,12 @@ body {
   .topbar__live-dot--on { animation: none; }
 }
 
+@media (max-width: 1000px) {
+  .topbar { flex-wrap: wrap; row-gap: var(--s2); }
+  .topbar__nav { order: 3; flex: 1 0 100%; gap: var(--s4); }
+  .topbar__tagline { display: none; }
+}
+
 /* ---------------------------------------------------------------- views */
 
 .view { display: none; padding: var(--s5); }
@@ -1661,6 +1667,12 @@ body {
   .situation-hero__why-detail, .situation-hero__prediction-reason, .situation-hero__terrain { font-size: 11px; line-height: 1.2; }
   .situation-hero__terrain { margin-bottom: var(--s1); }
   .situation-hero__actions { margin-top: var(--s1); }
+  .dashboard__left { gap: var(--s2); }
+  .city-health { padding: var(--s3); }
+  .city-health__score { font-size: 36px; }
+  .feed-compact-row { padding: 5px var(--s2); margin-bottom: 4px; }
+  .feed-compact-row__name { font-size: 14px; }
+  .proof-strip { padding: var(--s2) var(--s3); }
 }
 
 /* status-block is kept in the DOM for js/city.js / js/statusblock.js to

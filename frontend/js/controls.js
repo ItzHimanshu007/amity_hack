@@ -94,6 +94,7 @@ function trimSpeed(v) {
 function setSimStatus(sim) {
   if (!sim) return;
   lastSim = { ...lastSim, ...sim };
+  window.dispatchEvent(new CustomEvent("sim:status", { detail: lastSim }));
   const playing = lastSim.state === "play";
 
   els.stateDot.className = `cc-status__dot ${playing ? "is-playing" : "is-paused"}`;

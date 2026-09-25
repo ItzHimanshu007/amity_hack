@@ -51,13 +51,14 @@ async def _tick_loop():
 
                 # Phase 6b: New situations (2nd member crossed)
                 new_sits = store.new_situations_since(prev_time, cur_time)
-                for sit in new_sits:
+                # Stopped-feed confidence penalties must survive routine updates.
+                for sit in store._apply_overrides(new_sits):
                     msg = broadcaster.situation_msg(sit, "created", sim_time)
                     await broadcaster.broadcast(msg)
 
                 # Phase 6b: Existing situations gaining new members ("updated")
                 updated = store.updated_situations_since(prev_time, cur_time)
-                for _orig, partial in updated:
+                for partial in store._apply_overrides([p for _orig, p in updated]):
                     msg = broadcaster.situation_msg(partial, "updated", sim_time)
                     await broadcaster.broadcast(msg)
 

@@ -83,6 +83,13 @@ function renderTopbarStatus() {
 }
 
 function initTopbar() {
+  // js/controls.js shares confirmed sim status straight from /control responses,
+  // so the top bar doesn't wait for the next tick after a click.
+  window.addEventListener("sim:status", (ev) => {
+    const s = ev.detail || {};
+    lastTick = { ...lastTick, ...(s.state ? { state: s.state } : {}), ...(s.sim_time_utc ? { sim_time_utc: s.sim_time_utc } : {}) };
+    renderTopbarStatus();
+  });
   window.addEventListener("stream:connection", (ev) => {
     connected = !!(ev.detail && ev.detail.connected);
     renderTopbarStatus();
@@ -292,14 +299,24 @@ function maybeRefreshRejected(simTimeUtc) {
   fetchState().then((st) => setRejected(st.rejected_candidates)).catch(() => { /* keep last list */ });
 }
 
+const LEVEL_RANK = { green: 0, yellow: 1, orange: 2, red: 3 };
+
+// The hero shows the most serious situation. Once one is on screen it stays
+// there unless another reaches a higher alert level (or it ends), so a few
+// points of pulse_score -- e.g. a stopped-feed penalty -- don't swap the story
+// out from under the viewer.
 function pickPrimarySituation() {
+  const active = [...situationsById.values()].filter((s) => !s.is_decoy && s.status === "active");
+  if (!active.length) return null;
   let best = null;
-  for (const sit of situationsById.values()) {
-    if (sit.is_decoy || sit.status !== "active") continue;
+  for (const sit of active) {
     if (!best) { best = sit; continue; }
-    if (sit.pulse_score > best.pulse_score) { best = sit; continue; }
-    if (sit.pulse_score === best.pulse_score && new Date(sit.created_utc) > new Date(best.created_utc)) best = sit;
+    const byLevel = (LEVEL_RANK[sit.alert_level] ?? 0) - (LEVEL_RANK[best.alert_level] ?? 0);
+    if (byLevel > 0 || (byLevel === 0 && sit.pulse_score > best.pulse_score)
+        || (byLevel === 0 && sit.pulse_score === best.pulse_score && new Date(sit.created_utc) > new Date(best.created_utc))) best = sit;
   }
+  const current = active.find((s) => s.situation_id === lastHeroId);
+  if (current && (LEVEL_RANK[best.alert_level] ?? 0) <= (LEVEL_RANK[current.alert_level] ?? 0)) return current;
   return best;
 }
 

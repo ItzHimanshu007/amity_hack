@@ -30,6 +30,7 @@ from copy import deepcopy
 from contract_constants import (
     FEEDS, ACTIVE_WINDOW_SEC, PULSE_THRESHOLDS,
     alert_level_for, CONFIDENCE_ORDER,
+    CHAOS_CONFIDENCE_PENALTY, CHAOS_PULSE_PENALTY,
 )
 from ingest.health import FeedHealth, STATE_KILLED, STATE_LIVE
 from engine.plausibility import successors, reason_for
@@ -446,16 +447,38 @@ class TimelineStore:
                     }
         return cells
 
+    def killed_feed_override(self, situation: dict) -> Optional[dict]:
+        """CONTRACT.md §E kill_feed: any active situation with a member event from a
+        stopped feed gets the one-level-down penalty -- including situations revealed
+        after the feed was stopped, which an at-kill-time snapshot would miss."""
+        if not self.killed_feeds:
+            return None
+        feeds = sorted({self.events_by_id[eid]["source"]
+                        for eid in situation.get("member_event_ids", [])
+                        if eid in self.events_by_id} & set(self.killed_feeds))
+        if not feeds:
+            return None
+        conf = situation.get("confidence_level")
+        names = " and ".join(feeds)
+        return {
+            "original_confidence": conf,
+            "adjusted_confidence": CHAOS_CONFIDENCE_PENALTY.get(conf, conf),
+            "reason_en": f"{names} feed stopped — confidence lowered",
+            "reason_hi": f"{names} फीड बंद — भरोसा कम किया गया",
+            "penalty_applied": True,
+            "killed_feed": feeds[0],
+        }
+
     def _apply_overrides(self, situations: list) -> list:
         """Apply serve-time confidence/pulse overrides from chaos controls."""
-        if not self.confidence_overrides:
+        if not self.confidence_overrides and not self.killed_feeds:
             return situations
         result = []
         for s in situations:
             sid = s["situation_id"]
-            if sid in self.confidence_overrides:
+            override = self.confidence_overrides.get(sid) or self.killed_feed_override(s)
+            if override:
                 s = deepcopy(s)
-                override = self.confidence_overrides[sid]
                 s["confidence_level"] = override["adjusted_confidence"]
                 s["confidence_reason_en"] = override["reason_en"]
                 s["confidence_reason_hi"] = override.get("reason_hi",
@@ -464,7 +487,7 @@ class TimelineStore:
                 # is a serve-time penalty, but we don't recompute the formula —
                 # just drop pulse_score by a fixed penalty
                 if override.get("penalty_applied"):
-                    s["pulse_score"] = max(0, s["pulse_score"] - 5)
+                    s["pulse_score"] = max(0, s["pulse_score"] - CHAOS_PULSE_PENALTY)
                     s["alert_level"] = alert_level_for(s["pulse_score"])
             result.append(s)
         return result

@@ -50,7 +50,9 @@ def get_state():
     sim_time = _clock.now()
 
     active_evts = _store.active_events(sim_time)
-    active_sits = _store.revealed_situations(sim_time)  # include all revealed
+    # Stopped-feed confidence penalties apply here too, so a page refresh shows
+    # the same confidence the live stream does.
+    active_sits = _store._apply_overrides(_store.revealed_situations(sim_time))
     feed_health = _store.compute_feed_health(sim_time)
     city = _store.city_rollup(sim_time)
     counts = _store.counts(sim_time)
@@ -78,7 +80,7 @@ def get_situation(situation_id: str):
         raise HTTPException(status_code=503, detail="Simulation not started")
 
     sim_time = _clock.now()
-    revealed = _store.revealed_situations(sim_time)
+    revealed = _store._apply_overrides(_store.revealed_situations(sim_time))
     sit = None
     for s in revealed:
         if s["situation_id"] == situation_id:

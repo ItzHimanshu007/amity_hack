@@ -149,11 +149,8 @@ async def post_control(request: Request):
             for sid in updated_sits:
                 for sit in active_sits:
                     if sit["situation_id"] == sid:
-                        override = _store.confidence_overrides[sid]
-                        sit_copy = dict(sit)
-                        sit_copy["confidence_level"] = override["adjusted_confidence"]
-                        sit_copy["confidence_reason_en"] = override["reason_en"]
-                        sit_copy["confidence_reason_hi"] = override["reason_hi"]
+                        # Same serve-time override /state and the tick loop apply.
+                        sit_copy = _store._apply_overrides([sit])[0]
                         msg = _broadcaster.situation_msg(sit_copy, "updated", sim_time)
                         await _broadcaster.broadcast(msg)
 
@@ -191,13 +188,14 @@ async def post_control(request: Request):
                     msg = _broadcaster.feedhealth_msg(row, sim_time)
                     await _broadcaster.broadcast(msg)
 
-            # Push restored situation messages
-            active_sits = _store.active_situations(sim_time)
-            for sid in restored_sits:
-                for sit in active_sits:
-                    if sit["situation_id"] == sid:
-                        msg = _broadcaster.situation_msg(sit, "updated", sim_time)
-                        await _broadcaster.broadcast(msg)
+            # Push restored values for every active situation that includes this
+            # feed (covers ones penalised after they appeared while it was stopped).
+            for sit in _store._apply_overrides(_store.active_situations(sim_time)):
+                sources = {(_store.events_by_id.get(eid) or {}).get("source")
+                           for eid in sit.get("member_event_ids", [])}
+                if sit["situation_id"] in restored_sits or feed in sources:
+                    msg = _broadcaster.situation_msg(sit, "updated", sim_time)
+                    await _broadcaster.broadcast(msg)
 
         return {"ok": True, "sim": _clock.sim_block(),
                 "feed": feed, "state": "live",
