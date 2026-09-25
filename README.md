@@ -114,7 +114,7 @@ separate processes as part of Phase 1.
 
 It writes every file listed in [CONTRACT.md §H](CONTRACT.md#h-filenaming-conventions)
 into `/data`: the five raw feeds in their five deliberately different formats, the
-feeder and stop registries, `/data/event_index.jsonl` (a Phase 1 debug artifact — see
+feeder and drain-sensor registries, `/data/event_index.jsonl` (a Phase 1 debug artifact — see
 §H; Phase 3 must not read it), and `ground_truth.json`.
 
 `generate.py` runs six self-checks after writing (bbox containment and ground-truth
@@ -123,7 +123,7 @@ integrity are hard failures — a non-zero exit means the data is not usable):
 ```
 (a) record counts         history dwarfs the 3-hour demo window in every feed
 (b) bbox containment       every lat/lon falls inside CONTRACT.md §C's bbox   [hard fail]
-(c) registry integrity     every feeder_id / stop_id resolves through a registry
+(c) registry integrity     every feeder_id / drain rtu resolves through a registry
 (d) ground-truth integrity every member_event_ids id exists in a real raw record [hard fail]
 (e) history stationarity   no planted-cascade signature in the 14-day baseline
 (f) signal_down provenance the category arrives from both feeds, never merged
@@ -142,10 +142,10 @@ order, then (re)start the backend so it loads them:
 ```bash
 cd backend
 python -m sim.generate     # raw feeds        -> "all six checks passed"
-python -m ingest.run       # cleaned events   -> "wrote 4545 canonical events"
-python -m engine.run       # anomalies        -> "wrote 170 anomalies"
-python -m engine.linker    # situations       -> "21 episodes -> 3 situations, 30 rejected candidates"
-uvicorn main:app --port 8000   # startup log: "4545 events, 170 anomalies, 3 situations, 30 rejected"
+python -m ingest.run       # cleaned events   -> "wrote 4121 canonical events"
+python -m engine.run       # anomalies        -> "wrote 296 anomalies"
+python -m engine.linker    # situations       -> "35 episodes -> 8 situations, 21 rejected candidates"
+uvicorn main:app --port 8000   # startup log: "4121 events, 296 anomalies, 8 situations, 21 rejected"
 python -m api.verify_api   # in a second terminal, backend running: "All checks passed." (7/7)
 ```
 

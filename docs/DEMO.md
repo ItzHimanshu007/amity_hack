@@ -18,9 +18,9 @@ Four layers, and every screen maps to one of them:
 
 | Layer | What it is | Where it shows |
 |---|---|---|
-| **Observed** | What the feeds actually report: rain, complaints, power, buses, air | Feed list, raw data in the Data room |
+| **Observed** | What the feeds actually report: rain, complaints, power, storm-drain levels, air | Feed list, raw data in the Data room |
 | **Inferred** | What NagarNaadi believes may be connected | Hero: situation, evidence chain, confidence and its reason |
-| **Contextual** | What real terrain says about it | 3D terrain, modelled water, "Terrain context" lines |
+| **Contextual** | What real terrain says about it | 3D terrain, modelled storm water, "Terrain context" lines |
 | **Rejected** | What it deliberately refuses to connect | "Probably unrelated" |
 
 On data honesty, say exactly this. Never say "nothing on screen is made up".
@@ -33,28 +33,31 @@ On data honesty, say exactly this. Never say "nothing on screen is made up".
 
 1. **Data:** you ran the README pipeline (`sim.generate` → `ingest.run` → `engine.run` →
    `engine.linker`). The backend's startup log says
-   **`4545 events, 170 anomalies, 3 situations, 30 rejected`**. If it says `0`, restart the backend.
+   **`4121 events, 296 anomalies, 8 situations, 21 rejected`**. If it says `0`, restart the backend.
 2. **Servers:**
    - backend: `cd backend && uvicorn main:app --port 8000`
    - frontend: `cd frontend && python -m http.server 5500`
    - `curl http://127.0.0.1:8000/health` → `{"status":"ok"}`
-   - The backend opens paused at 7:30 PM; step 4 moves it to 7:05 PM.
+   - The backend opens paused at 7:30 PM, with five situations live; step 4 moves it to 7:05 PM.
 3. **Tab 1:** `http://127.0.0.1:5500/index.html`.
    **Tab 2:** `http://127.0.0.1:5500/resident.html`. In Tab 2, set **Alert me about** to **Malviya Nagar**.
 4. **Tab 1 setup:**
    - open **Simulation console**;
    - **Pause**;
-   - click the **7:05 PM · Feed-outage demo point** marker;
+   - click the **7:05 PM · Storm crossing the city** marker;
    - click **64×**;
    - collapse the console.
 5. **Reload Tab 1.** The 3D reveal happens only once per page load, and only when the situation
    arrives live.
 6. **Screen check:**
-   - The whole hero panel, down to "View full analysis", should sit above the console bar.
-     It does at 1920×950, 1440×900, 1440×800 and 1536×760.
-   - If it doesn't on the venue screen, press **Ctrl −** (90% or 80%).
-7. **Wifi:** not needed. The map, 3D terrain and drainage all work offline. Only road names and
-   water outlines need internet.
+   - The hero's two buttons ("View full analysis", "Resident view") sit just under the
+     confidence line and must be above the console bar. They are at 1920×950, 1440×900,
+     1440×800 and 1536×760. The explanation below them scrolls inside the right column.
+   - If the text looks cramped on the venue screen, press **Ctrl −** (90%).
+7. **Wifi:** not needed. The map, 3D terrain, drainage and the storm-water model all work
+   offline. Only road names and the basemap's rivers need internet.
+8. **Clock:** the top bar shows Jaipur's real time. The replay time is in the Simulation
+   console.
 
 To reset between rehearsals: Simulation console → **Load storm scenario** (back to 5:30 PM),
 then steps 4–5 again.
@@ -65,45 +68,45 @@ Times in brackets are measured from pressing Play in the rehearsal.
 
 | # | Do | You should see | Say |
 |---|---|---|---|
-| 1 | **Start.** Tab 1 at 7:05 PM, 2D. Open the console, press **▶ Play**, collapse the console. | "Nothing unusual right now". | "Jaipur has a weather feed, a complaints register, a power grid feed, bus GPS and air sensors. Five formats, five speeds, no shared IDs. Nobody connects them." |
-| 2 | Wait (≈ 28 s). | The hero fills: **"Heavy rain near Jaipur Junction + 1 nearby area is holding up buses"**, orange. | "The moment independent feeds agree, NagarNaadi forms a situation." |
-| 3 | Wait about 2 s for the map to tilt into 3D on its own. **Let the tilt finish, then Pause** in the console. | Real terrain in 3D, ridges behind; **blue water** along the streets around the situation. The legend: *"Modelled water at 7:30 pm: 0.92 km² over 2 cm"*, *"… where it would collect, not a flood forecast."* | "When a flood-related situation emerges, NagarNaadi brings in real terrain context. That blue is a shallow-water model: this replay's recorded rain routed over real Jaipur elevation. It doesn't change the confidence or claim causation." |
-| 4 | Point at **Terrain context**. | *"Terrain only partly explains this: local drainage likely matters. Sindhi Camp sits 5 m above its surroundings; Jaipur Junction is on a drainage path (more runoff than 70% of the city)."* Then **"Rain model at 7:30 pm: water over 10 cm on 5% of Sindhi Camp and 5% of Jaipur Junction (deepest 15 cm)."** | "We checked the situation against real elevation and a physical rain model, and we tell you it only partly fits. Context, not a magic explanation." |
-| 5 | Point at the chain. | Heavy rain → Waterlogging (12 min later) → Bus running late (17 min) → Power cut → Signal not working → Bus running late (15 min). Then ✓ Same geographic area · ✓ Correct temporal sequence · ✓ Historical relationship · ✓ Independent feed corroboration. | "Four feeds, in the right order, in adjacent areas, a pairing that historically happens about once every 10 hours here." |
-| 6 | Point at the confidence line. | **MEDIUM CONFIDENCE** · *"Civic complaints feed stale 6 min, confidence lowered"* · *"Still growing · 7 of ~12 reports so far"*. | "Not high, and it says why: one feed is late. It's also still collecting evidence." |
-| 7 | Click **"… other patterns in these areas rejected as coincidence · see why"**. | The Situations view scrolls to **Probably unrelated**. The first card: *"Waterlogging and Extreme heat … overlapped in time and space but neither is a known cause of the other."* | "This is what NagarNaadi **refused** to connect. Heat and waterlogging showed up together here, but there's no mechanism, so no link." |
-| 8 | Click **Live map**. Console: **▶ Play**. At about 7:59 PM, **Stop** on *City buses*. | **LOW CONFIDENCE** · *"City buses feed stopped — confidence lowered"*. | "Now the bus feed dies. Confidence drops, and it tells you why." |
-| 9 | Click **Start** on *City buses*. | Back to **MEDIUM CONFIDENCE**. | "Feed back, confidence back." |
-| 10 | Let it play to about 8:25 PM (≈ 25 s), then **Pause**. | At 8:20 PM the hero switches itself to the red **"A power cut near Malviya Nagar is holding up buses"**. | (It always shows the most serious situation.) |
-| 11 | Click **Data room**. | Original messy records next to the cleaned events; names and phone numbers masked. | "Nothing is hidden: here's the raw data next to what we made of it, with personal details masked before they reach the screen." |
-| 12 | Back to **Live map**; point at **How we know it works**. | **3/3** planted situations found · **0** false links · **3/3** decoys correctly ignored. | "Scored against an answer key the detector never reads: 3 of 3 found, zero false links, all 3 decoys ignored." |
-| 13 | **Tab 2**, the resident view. | **Take action**. Alerts: **"New near Malviya Nagar"** and **"Getting worse near Malviya Nagar"**. | "For residents: one word, one line, an alert for their area. No map to read." |
-| 14 | Click **हिंदी**. | *"मालवीय नगर के पास बिजली कटौती से बसें रुकी हैं"* and the alert *"मालवीय नगर के पास स्थिति बिगड़ रही है"*. | "And in Hindi." Close on the one-line pitch. |
+| 1 | **Start.** Tab 1 at 7:05 PM, 2D. Open the console, press **▶ Play**, collapse the console. | One situation: **"A power cut near Vidyadhar Nagar has left a streetlight dark"**. *Live situations · 1 area* on the map. Light blue water starting to show in the west. | "Jaipur has a weather feed, a complaints register, a power grid feed, storm-drain level sensors and air sensors. Five formats, five speeds, no shared IDs. Nobody connects them." |
+| 2 | Wait (≈ 15 s). | The storm reaches the city: new situations appear in **Live situations**. When **"Heavy rain near Mansarovar + 1 nearby area has damaged the road"** arrives, the map tilts into 3D over it by itself. | "The moment independent feeds agree, NagarNaadi forms a situation. This is a storm crossing the city, so it's happening in several places at once." |
+| 3 | **Let the tilt finish, then Pause** in the console. | Real terrain in 3D. **Blue columns** of modelled water across the city; red and orange columns over the situations. Bottom-left: **Storm water model** with water standing (m³), area under 2 cm or more, deepest point, and people where the water is over 10 cm (sample estimate). | "That blue is a shallow-water model: this replay's recorded rain routed over real Jaipur elevation. It doesn't change the confidence or claim causation." |
+| 4 | **Click a blue water cell.** | The cell inspector: grid cell, ground elevation, water depth now, water surface level, water collected (m³), deepest so far, and people living there (sample estimate). | "Every cell is inspectable: how deep, how much water, at what elevation, and roughly how many people live there. The population is a sample estimate, and it says so." |
+| 5 | Point at **Terrain context**. | *"Terrain supports this. Mansarovar is on a drainage path…"* and **"Rain model at …: water over 10 cm on …% of Mansarovar …"**. | "We check each situation against real elevation and the rain model. Where terrain only partly explains it, it says so." |
+| 6 | Point at the chain. | Heavy rain → Drain overflowing → Waterlogging → Road damage, with the gaps. ✓ Same geographic area · ✓ Correct temporal sequence · ✓ Historical relationship · ✓ Independent feed corroboration. | "Rain, then the drain gauges go over capacity, then residents report water, then the road breaks up. Three independent feeds, in the right order, in the same place." |
+| 7 | Point at the confidence line. | The confidence word with its reason, e.g. *"Civic complaints feed stale 5 min, confidence lowered"*, and *"Still growing · 7 of ~10 reports so far"*. | "It tells you how sure it is, and why not more." |
+| 8 | Click **"… other patterns … rejected as coincidence · see why"**. | The Situations view scrolls to **Probably unrelated**. | "This is what NagarNaadi **refused** to connect: things that overlapped in time and space but can't cause each other." |
+| 9 | Click **Live map**. In **Live situations**, click **"Heavy rain near Sindhi Camp …"**. | The map flies there; the hero shows rain → drain overflowing → waterlogging → power cut → signal not working. | "Pick any live situation; the whole story comes with it." |
+| 10 | Console: **▶ Play**, then **Stop** on *Storm-drain sensors*. | **LOW CONFIDENCE** · *"Storm-drain sensors feed stopped — confidence lowered"*. | "Now the drain sensors die. Confidence drops, and it tells you why." |
+| 11 | Click **Start** on *Storm-drain sensors*. | Back to **MEDIUM CONFIDENCE**. | "Feed back, confidence back." |
+| 12 | Let it play to about 8:20 PM (≈ 45 s), then **Pause**. | **Live situations · 8 areas**: Sindhi Camp, Mansarovar, Tonk Road, Sanganer, Jagatpura, Malviya Nagar, Vidyadhar Nagar, Vaishali Nagar. | "By 8:20 the storm has touched most of the city. Eight situations, each explained." |
+| 13 | Click **Data room**. | Original messy records next to the cleaned events; names and phone numbers masked. | "Nothing is hidden: the raw data next to what we made of it, with personal details masked." |
+| 14 | Back to **Live map**; point at **How we know it works**. | **8/8** planted situations found · **0** false links · **3/3** decoys correctly ignored. | "Scored against an answer key the detector never reads: 8 of 8 found, zero false links, all 3 decoys ignored." |
+| 15 | **Tab 2**, the resident view. | **Take action**, and the alert **"New near Malviya Nagar"**. | "For residents: one word, one line, an alert for their area. No map to read." |
+| 16 | Click **हिंदी**. | The same page in Hindi. | "And in Hindi." Close on the one-line pitch. |
 
 ### Things to avoid on stage
 
-- **Don't reload the page after jumping past 7:10 PM.** The 3D reveal only fires when the
+- **Don't reload the page after jumping past 7:15 PM.** The 3D reveal only fires when the
   situation arrives while the page is open. If the map is flat, press **3D terrain** on the map.
 - **Don't click during the 2-second tilt.** On a weak laptop GPU the animation is heavy; wait
   for it to settle.
-- **Don't refresh after stopping a feed.** The lowered confidence arrives over the live stream;
-  a refresh shows the original level.
-- **Don't scroll to the bottom of the Data room.** Its full scorecard includes a detection-lag
-  figure the backend itself marks as an approximation, with internal notes. Use the
-  **How we know it works** box on the Live map for the numbers.
 - **Don't call the blue water a flood forecast.** It's where this replay's rain would collect
-  on real terrain. The depths are indicative (30 m elevation), the pattern is the point.
+  on real terrain. The depths are indicative (30 m elevation), the pattern is the point. The
+  3D column height is the depth ×30 so it's visible at city scale; the legend says so.
+- **Say "sample estimate" for population.** The people counts come from a simple density
+  model, not a census.
 
 ## Slide outline (6 slides)
 
 1. **The problem, in one line.** "Residents learn about a flooded underpass when they're stuck
    in it. The data existed; nobody connected it."
 2. **The funnel (real pipeline numbers).**
-   - 99,069 raw records across 5 feeds and 5 formats.
-   - → 4,545 cleaned events.
-   - → 170 statistically unusual windows.
-   - → 21 episodes.
-   - → **3 situations**, 30 candidate links rejected.
+   - 158,303 raw records across 5 feeds and 5 formats.
+   - → 4,121 cleaned events.
+   - → 296 statistically unusual windows.
+   - → 35 episodes.
+   - → **8 situations**, 21 candidate links rejected.
 3. **Observed → inferred → contextual → rejected.** The four-layer table above.
 4. **How we decide two things are linked.**
    - Same or adjacent area (H3 hexagons).
@@ -112,7 +115,7 @@ Times in brackets are measured from pressing Play in the rehearsal.
    - Co-occurrence against a learned 14-day baseline.
    - Confidence is a word with a stated reason, never a fake percentage.
 5. **Why you can trust it.**
-   - 3/3 found, 0 false links, 3/3 decoys ignored.
+   - 8/8 found, 0 false links, 3/3 decoys ignored.
    - Graceful degradation.
    - PII masked on read.
    - "Possibly linked", never "caused".
@@ -130,8 +133,11 @@ Times in brackets are measured from pressing Play in the rehearsal.
   context. NagarNaadi's situation is formed from the cross-feed evidence; terrain is additional
   context that helps us judge whether that situation is geographically plausible. Here it only
   partly is, and we say so."
+- **"Why storm-drain sensors and not buses?"** Drain levels are the missing causal link in a
+  flood: rain fills the drains, a drain over capacity spills into the street. Jaipur's JDA
+  and JMC monitor nala levels; buses run late for a hundred reasons a civic feed can't see.
 - **"Is the flood simulation real?"** It's a physical model on real terrain, driven by the
-  replay's (synthetic) rain:
+  replay's (synthetic) rain from 13 gauges across the city:
   - It uses the local-inertial shallow-water scheme from LISFLOOD-FP on SRTM elevation.
   - Drains remove 15 mm/h (the CPHEEO design range) and infiltration 7 mm/h.
   - Mass balance is exact.
@@ -141,8 +147,8 @@ Times in brackets are measured from pressing Play in the rehearsal.
 - **"Is the data real?"** The civic feeds are synthetic, as the problem statement allows, and
   labelled "Simulated data" on screen. They come in five deliberately messy formats:
   - IST text dates;
-  - feeder IDs with no coordinates;
-  - GTFS-style nested JSON;
+  - feeder and drain-gauge IDs with no coordinates;
+  - SCADA-style tagged channels with a -999 fault value;
   - sensor fault sentinels.
 
   We normalize these into one schema. The terrain is real SRTM elevation.
@@ -154,6 +160,6 @@ Times in brackets are measured from pressing Play in the rehearsal.
 - **"Why no LLM summary?"** Every sentence is filled from the ingested data using fixed
   wording, not generated. The problem statement asks for summaries grounded strictly in the
   ingested data, and for epistemic honesty.
-- **"What happens when a feed goes down?"** Show it: script step 8.
+- **"What happens when a feed goes down?"** Show it: script step 10.
 - **"Why did you reject heat + waterlogging?"** It isn't in the plausibility table: neither is
   a known cause of the other, so co-occurring isn't enough.
